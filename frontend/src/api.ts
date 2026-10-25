@@ -12,7 +12,31 @@ export class ApiError extends Error {
   }
 }
 
+// Static preview build: answers GET requests from recorded demo responses; writes are refused.
+type PreviewData = { responses: Record<string, unknown> }
+const PREVIEW = (window as unknown as { __EGI_PREVIEW__?: PreviewData }).__EGI_PREVIEW__
+
+function previewKey(path: string) {
+  const [p, q = ''] = path.split('?')
+  const params = [...new URLSearchParams(q).entries()].sort(([a], [b]) => a.localeCompare(b))
+  return params.length ? `${p}?${new URLSearchParams(params).toString()}` : p
+}
+
+async function previewRequest<T>(method: string, path: string): Promise<T> {
+  await new Promise((r) => setTimeout(r, 60))
+  if (method !== 'GET') {
+    throw new ApiError(0, 'preview', 'Anteprima statica: simulazioni, import e modifiche richiedono il server dell\'applicazione.')
+  }
+  const key = previewKey(path)
+  if (key in PREVIEW!.responses) return PREVIEW!.responses[key] as T
+  const base = key.split('?')[0]
+  const fallback = Object.keys(PREVIEW!.responses).find((k) => k.split('?')[0] === base)
+  if (fallback) return PREVIEW!.responses[fallback] as T
+  throw new ApiError(404, 'preview', 'Questa vista non è inclusa nell\'anteprima statica.')
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  if (PREVIEW) return previewRequest<T>(method, path)
   const init: RequestInit = { method, credentials: 'same-origin', headers: {} }
   if (body instanceof FormData) {
     init.body = body

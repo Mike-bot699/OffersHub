@@ -72,6 +72,14 @@ export default function App() {
           <span className="spacer" />
           {store?.is_demo && <DemoBadge />}
         </div>
+        {import.meta.env.VITE_PREVIEW === '1' && (
+          <div className="content" style={{ paddingBottom: 0 }}>
+            <div className="notice info">
+              <strong>Anteprima statica.</strong> Interfaccia reale dell'applicazione con i dati sintetici del negozio DEMO,
+              registrati dal server. Si naviga liberamente; simulazioni, import e modifiche richiedono l'app in esecuzione.
+            </div>
+          </div>
+        )}
         {store?.is_demo && (
           <div className="content" style={{ paddingBottom: 0 }}>
             <div className="notice demo">

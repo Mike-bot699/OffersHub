@@ -52,6 +52,7 @@ const C = createContext<Ctx | null>(null)
 const KEY = 'egi.filters'
 
 function load(): Filters {
+  if (import.meta.env.VITE_PREVIEW === '1') return { storeId: 1, days: 90, includeDemo: true }
   try {
     const raw = localStorage.getItem(KEY)
     if (raw) return { storeId: null, days: 90, includeDemo: true, ...JSON.parse(raw) }
