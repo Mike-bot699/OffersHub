@@ -8,7 +8,7 @@ import { TrendLine } from '../charts'
 import { Card, ErrorBox, Field, Loading, PageHead, Source, Tabs } from '../ui'
 
 type K = Record<string, number | null>
-type Summary = {
+export type Summary = {
   period: { start: string; end: string }
   kpis: K & { contribution_missing: string[]; cost_basis: string }
   previous: { period: { start: string; end: string }; kpis: K; change: K }
@@ -30,7 +30,7 @@ const ROWS: [string, string, 'money' | 'pct' | 'num' | 'money2'][] = [
 ]
 
 export default function Analytics() {
-  return <NeedStore title="Analytics">{(s) => <AnalyticsFor store={s} />}</NeedStore>
+  return <NeedStore title="Store analytics">{(s) => <AnalyticsFor store={s} />}</NeedStore>
 }
 
 function AnalyticsFor({ store }: { store: StoreRow }) {
@@ -42,8 +42,8 @@ function AnalyticsFor({ store }: { store: StoreRow }) {
     kind === 'money' ? money(v, cur) : kind === 'money2' ? money(v, cur, 2) : kind === 'pct' ? pct(v, 2) : num(v, v != null && v % 1 ? 2 : 0)
   return (
     <>
-      <PageHead title="Analytics" desc="Comparisons, customers, discounting, seasonality and scenario simulations. Formulas are documented in docs/METRICS.md." />
-      <Tabs value={tab} onChange={setTab} tabs={[{ id: 'performance', label: 'Performance' }, { id: 'customers', label: 'Customers & discounts' }, { id: 'simulate', label: 'Simulations' }]} />
+      <PageHead title="Store analytics" desc="Period and year-over-year comparisons, customers and seasonality. Formulas are documented in docs/METRICS.md." />
+      <Tabs value={tab} onChange={setTab} tabs={[{ id: 'performance', label: 'Performance' }, { id: 'customers', label: 'Customers & discounts' }]} />
       {q.isLoading ? <Loading /> : q.error ? <ErrorBox error={q.error} /> : tab === 'performance' ? (
         <div className="stack">
           <Card title="Period comparison">
@@ -82,7 +82,7 @@ function AnalyticsFor({ store }: { store: StoreRow }) {
               <tr key={k}><td>{label(k)}</td><td className="num">{typeof v === 'number' && /coverage|share/.test(k) ? pct(v) : typeof v === 'number' ? num(v) : String(v ?? '—')}</td></tr>))}</tbody></table>
           </Card>
         </div>
-      ) : tab === 'customers' ? <Customers s={q.data!} cur={cur} /> : <Simulations store={store} s={q.data!} />}
+      ) : <Customers s={q.data!} cur={cur} />}
     </>
   )
 }
@@ -132,7 +132,7 @@ const SIMS: SimDef[] = [
     fields: [['qualifying_aov', 'AOV of qualifying orders'], ['discount_pct', 'Discount (0–1)'], ['gift_unit_cost', 'Gift unit cost'], ['gift_perceived_value', 'Gift price / perceived value']] },
 ]
 
-function Simulations({ store, s }: { store: StoreRow; s: Summary }) {
+export function Simulations({ store, s }: { store: StoreRow; s: Summary }) {
   const { days } = useApp()
   const [kind, setKind] = useState('price_change')
   const def = SIMS.find((x) => x.kind === kind)!

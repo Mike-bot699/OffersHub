@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, qs } from '../api'
 import { label } from '../format'
+import { isOfferStrategy } from '../offerFocus'
 import { RecCard, RecDetail, type Rec } from '../recs'
 import { useApp } from '../state'
 import { Card, Empty, ErrorBox, Loading, PageHead } from '../ui'
@@ -11,6 +12,7 @@ export default function Opportunities() {
   const [status, setStatus] = useState('open')
   const [strategy, setStrategy] = useState('')
   const [open, setOpen] = useState<number | null>(null)
+  const [focus, setFocus] = useState(true)
   const qc = useQueryClient()
   const q = useQuery({
     queryKey: ['recs', storeId, status, strategy, includeDemo],
@@ -20,6 +22,7 @@ export default function Opportunities() {
     mutationFn: () => api.post('/recommendations/run', storeId ? { store_id: storeId, days } : { include_demo: includeDemo, days }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['recs'] }),
   })
+  const shown = (q.data ?? []).filter((r) => !focus || isOfferStrategy(r.strategy_type))
   return (
     <>
       <PageHead title="Opportunities"
@@ -36,12 +39,13 @@ export default function Opportunities() {
         </select>
         <select value={strategy} onChange={(e) => setStrategy(e.target.value)}>
           <option value="">All strategy types</option>
-          {meta?.strategy_types.map((s) => <option key={s} value={s}>{label(s)}</option>)}
+          {meta?.strategy_types.filter((s) => !focus || isOfferStrategy(s)).map((s) => <option key={s} value={s}>{label(s)}</option>)}
         </select>
+        <label className="row" style={{ gap: 4 }}><input type="checkbox" checked={focus} onChange={(e) => setFocus(e.target.checked)} /> Offers, discounts and AOV only</label>
       </div>
-      {q.isLoading ? <Loading /> : q.error ? <ErrorBox error={q.error} /> : !q.data?.length ? (
+      {q.isLoading ? <Loading /> : q.error ? <ErrorBox error={q.error} /> : !shown.length ? (
         <Card><Empty title="Nothing here">Detectors only produce a recommendation when the evidence clears an explicit threshold. Run the analysis, widen the period, or add missing data (costs, traffic).</Empty></Card>
-      ) : q.data.map((r) => <RecCard key={r.id} rec={r} onOpen={() => setOpen(r.id)} />)}
+      ) : shown.map((r) => <RecCard key={r.id} rec={r} onOpen={() => setOpen(r.id)} />)}
       <RecDetail id={open} onClose={() => setOpen(null)} />
     </>
   )

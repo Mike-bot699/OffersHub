@@ -15,17 +15,27 @@ type Ev = {
 }
 type Alert = { severity: string; kind: string; title: string; detail: string; store_code: string }
 
-export default function Offers() {
+export function OffersCalendar() {
   const [tab, setTab] = useState('events')
   return (
     <>
-      <PageHead title="Offers" desc="Reusable offer definitions, the promotional calendar with results, coupon monitoring and the historical record. Documented offers and offers verified in the store are always shown separately." />
-      <Tabs value={tab} onChange={setTab} tabs={[
-        { id: 'events', label: 'Calendar & events' }, { id: 'alerts', label: 'Monitoring' }, { id: 'library', label: 'Offer library' },
-        { id: 'coupons', label: 'Coupons' }, { id: 'history', label: 'What worked' }, { id: 'import', label: 'Import workbook' },
-      ]} />
+      <PageHead title="Offer calendar" desc="Every planned, live and past promotion with its codes, targets and results, plus the checks that need attention before and during each offer." />
+      <Tabs value={tab} onChange={setTab} tabs={[{ id: 'events', label: 'Events' }, { id: 'alerts', label: 'Monitoring' }]} />
       {tab === 'events' && <Events />}
       {tab === 'alerts' && <Alerts />}
+    </>
+  )
+}
+
+export function OfferDatabase() {
+  const [tab, setTab] = useState('library')
+  return (
+    <>
+      <PageHead title="Offer database" desc="Reusable offer mechanics, every coupon code (synced from the store or documented), the historical record of what worked, and the workbook import." />
+      <Tabs value={tab} onChange={setTab} tabs={[
+        { id: 'library', label: 'Offer library' }, { id: 'coupons', label: 'Coupon codes' },
+        { id: 'history', label: 'What worked' }, { id: 'import', label: 'Import workbook' },
+      ]} />
       {tab === 'library' && <Library />}
       {tab === 'coupons' && <Coupons />}
       {tab === 'history' && <History />}

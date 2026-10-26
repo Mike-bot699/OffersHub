@@ -6,11 +6,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.common import DB, get_store, to_dict
+from app.api.common import DB, Period, get_store, to_dict
 from app.core.errors import NotFoundError, ValidationError
 from app.models import Coupon, Offer, PromoEvent, Store
 from app.models.enums import DataSource, OfferType
 from app.offers.monitoring import alerts, measure_event, offer_history_stats, verify_event
+from app.offers.performance import discount_analysis, offer_performance
 from app.services.audit import audit
 
 router = APIRouter(prefix="/api", tags=["offers"])
@@ -239,6 +240,18 @@ def history(store_id: int | None = None, include_demo: bool = False, db: Session
             q = q.where(Store.is_demo.is_(False))
         ids = list(db.scalars(q))
     return offer_history_stats(db, ids)
+
+
+@router.get("/stores/{store_id}/discount-analysis")
+def discount_analysis_route(store_id: int, period: tuple[date, date] = Period, db: Session = DB):
+    return discount_analysis(db, get_store(db, store_id), *period)
+
+
+@router.get("/stores/{store_id}/offer-performance")
+def offer_performance_route(store_id: int, days: int = 365, db: Session = DB):
+    from datetime import timedelta
+
+    return offer_performance(db, get_store(db, store_id), since=date.today() - timedelta(days=days))
 
 
 def _event(db: Session, event_id: int) -> PromoEvent:

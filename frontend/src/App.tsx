@@ -8,22 +8,32 @@ import Overview from './pages/Overview'
 import Stores from './pages/Stores'
 import Products from './pages/Products'
 import Basket from './pages/Basket'
-import Offers from './pages/Offers'
+import Discounts from './pages/Discounts'
+import { OfferDatabase, OffersCalendar } from './pages/Offers'
+import OfferAnalysis from './pages/OfferAnalysis'
+import Simulator from './pages/Simulator'
 import Analytics from './pages/Analytics'
 import Opportunities from './pages/Opportunities'
 import Experiments from './pages/Experiments'
 import Integrations from './pages/Integrations'
 import Settings from './pages/Settings'
 
-const NAV = [
+// Main work: offers, discounts and order value. Secondary: data sources and set-up.
+const NAV_MAIN = [
   ['/', 'Overview'],
+  ['/basket', 'AOV & basket'],
+  ['/discounts', 'Discounts'],
+  ['/calendar', 'Offer calendar'],
+  ['/offer-database', 'Offer database'],
+  ['/offer-analysis', 'Offer analysis'],
   ['/opportunities', 'Opportunities'],
-  ['/stores', 'Stores'],
-  ['/products', 'Products'],
-  ['/basket', 'Basket Growth'],
-  ['/offers', 'Offers'],
-  ['/analytics', 'Analytics'],
   ['/experiments', 'Experiments'],
+  ['/simulator', 'Simulator'],
+] as const
+const NAV_DATA = [
+  ['/products', 'Products'],
+  ['/analytics', 'Store analytics'],
+  ['/stores', 'Stores'],
   ['/integrations', 'Integrations'],
   ['/settings', 'Settings'],
 ] as const
@@ -44,11 +54,15 @@ export default function App() {
       <aside className="sidebar">
         <div className="brand">
           Growth Intelligence
-          <small className="muted">Private ecommerce strategy</small>
+          <small className="muted">Offers, discounts & AOV</small>
         </div>
         <nav className="nav">
-          {NAV.map(([to, text]) => (
+          {NAV_MAIN.map(([to, text]) => (
             <NavLink key={to} to={to} end={to === '/'}>{text}</NavLink>
+          ))}
+          <div className="nav-group">Data & setup</div>
+          {NAV_DATA.map(([to, text]) => (
+            <NavLink key={to} to={to} className="nav-secondary">{text}</NavLink>
           ))}
         </nav>
       </aside>
@@ -91,13 +105,17 @@ export default function App() {
         <main className="content">
           <Routes>
             <Route path="/" element={<Overview />} />
-            <Route path="/opportunities" element={<Opportunities />} />
-            <Route path="/stores" element={<Stores />} />
-            <Route path="/products" element={<Products />} />
             <Route path="/basket" element={<Basket />} />
-            <Route path="/offers" element={<Offers />} />
-            <Route path="/analytics" element={<Analytics />} />
+            <Route path="/discounts" element={<Discounts />} />
+            <Route path="/calendar" element={<OffersCalendar />} />
+            <Route path="/offer-database" element={<OfferDatabase />} />
+            <Route path="/offer-analysis" element={<OfferAnalysis />} />
+            <Route path="/opportunities" element={<Opportunities />} />
             <Route path="/experiments" element={<Experiments />} />
+            <Route path="/simulator" element={<Simulator />} />
+            <Route path="/products" element={<Products />} />
+            <Route path="/analytics" element={<Analytics />} />
+            <Route path="/stores" element={<Stores />} />
             <Route path="/integrations" element={<Integrations />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<p>Page not found.</p>} />

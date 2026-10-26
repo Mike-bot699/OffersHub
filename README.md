@@ -1,6 +1,6 @@
 # Ecommerce Growth Intelligence
 
-A private decision-support application for ecommerce stores. It uses real store data to find,
+A private decision-support application for ecommerce stores, focused on **offers, discounts and order value (AOV)**. It uses real store data to find,
 quantify, prioritise and validate growth opportunities across products, baskets, offers and stores,
 while keeping every consequential change under your explicit control.
 

@@ -14,6 +14,7 @@ from app.models import Integration, LearningRecord, MetricSnapshot, Recommendati
 from app.models.enums import EvidenceStrength, Objective, StrategyType
 from app.offers.monitoring import alerts as offer_alerts
 from app.offers.monitoring import offer_history_stats
+from app.offers.performance import offer_performance
 from app.services import integrations as integ_svc
 from app.strategy.detectors import DETECTORS, Context
 from app.strategy.frameworks import cite
@@ -64,6 +65,7 @@ def build_context(db: Session, store: Store, start: date, end: date) -> Context:
         alerts=offer_alerts(db, store, today=end),
         objectives=[o.objective for o in store.objectives if o.active],
         integration=integ_svc.describe(integ) if integ else None,
+        extra={"offer_performance": offer_performance(db, store, since=end - timedelta(days=180), today=end)},
     )
 
 

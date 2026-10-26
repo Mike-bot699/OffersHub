@@ -796,6 +796,46 @@ def promo_history(ctx: Context) -> list[RecDraft]:
         impact_hint=0.002 * ctx.summary["kpis"]["net_sales"] * ctx.annualize)]
 
 
+def promo_without_lift(ctx: Context) -> list[RecDraft]:
+    perf = ctx.extra.get("offer_performance") or {}
+    weak = []
+    for ev in perf.get("events", []):
+        m = ev.get("measured")
+        if not m or not m.get("change") or ev["status"] == "live":
+            continue
+        ch = m["change"].get("net_sales_per_day")
+        given = m.get("offer_discounts") or m["during"]["discounts"]
+        if ch is not None and ch <= 0.02 and given and given > 0 and ev["days"] >= 2:
+            weak.append((ev, ch, given))
+    if not weak:
+        return []
+    total = sum(g for _, _, g in weak)
+    names = [f"{ev['name']} ({ev['start']}, {pct(ch, 0)} sales/day, {ctx.money(g)} discounts)" for ev, ch, g in weak[:5]]
+    return [RecDraft(
+        detector="promo_without_lift", key="store", strategy_type=StrategyType.PROMOTION, scope_type="offer",
+        scope={"event_ids": [ev["event_id"] for ev, _, _ in weak], "labels": [ev["name"] for ev, _, _ in weak]},
+        title=f"{len(weak)} promotion(s) gave discounts without lifting daily sales",
+        problem="Net sales per day did not rise against the period just before these offers: " + "; ".join(names) + ".",
+        proposed_action="Do not repeat these mechanics as they were. For the next equivalent date, test a "
+                        "non-discount alternative (gift above a threshold, bundle, early access) or hold out half "
+                        "of the audience to see what the discount actually adds.",
+        economic_rationale="A discount that does not change demand transfers margin to customers who would have "
+                           "bought anyway.",
+        evidence=[Evidence("Offers without a lift", len(weak), ctx.src, "before/after"),
+                  Evidence("Discounts given during them", ctx.money(total), ctx.src)],
+        estimated_impact={"metric": "discounts given in these offers", "low": None, "base": round(total), "high": None,
+                          "unit": ctx.cur, "basis": "Exposure over the last 180 days, not a saving forecast."},
+        assumptions=["The period before each offer is a fair comparison (seasonality is not removed)."],
+        confidence="low", confidence_reason="Before/after comparison: seasonality, traffic and other campaigns can "
+                                            "hide or fake a lift.",
+        risks=["Some offers serve goals other than sales (list growth, clearing stock)."], risk_level="low",
+        complexity="low", recommended_test="Holdout: send the next equivalent offer to a random half of the audience.",
+        success_metrics=["Net sales per day vs holdout", "Discount rate", "Contribution per recipient"],
+        next_action="Open Offer analysis to review each event.",
+        frameworks=["promotion_expectations", "controlled_experiments", "offer_stacking"],
+        impact_hint=total * ctx.annualize / 2 * 0.5)]
+
+
 DETECTORS = [data_gaps, hero_concentration, declining_products, stockout_risk, price_increase, variant_signals,
              bundles, threshold_gift, quantity_incentive, discount_dependency, retention, conversion_drop,
-             returns_hotspots, promo_history]
+             returns_hotspots, promo_history, promo_without_lift]

@@ -4,10 +4,12 @@ import { api } from '../api'
 import { money, num, pct } from '../format'
 import { NeedStore } from '../NeedStore'
 import { useApp, type StoreRow } from '../state'
-import { Bars } from '../charts'
+import { Link } from 'react-router-dom'
+import { Bars, TrendLine } from '../charts'
+import type { DiscountAnalysis } from './Overview'
 import { Card, ErrorBox, Field, Kpi, Loading, PageHead, Source } from '../ui'
 
-type Basket = {
+export type Basket = {
   orders: number; aov: number | null; percentiles: Record<string, number | null>
   distribution: { from: number; to: number | null; orders: number }[]
   units_mix: { units: number | string; orders: number; share: number | null }[]
@@ -25,19 +27,21 @@ type ThresholdSim = {
 }
 
 export default function BasketPage() {
-  return <NeedStore title="Basket Growth">{(s) => <BasketFor store={s} />}</NeedStore>
+  return <NeedStore title="AOV & basket">{(s) => <BasketFor store={s} />}</NeedStore>
 }
 
 function BasketFor({ store }: { store: StoreRow }) {
   const { days } = useApp()
   const q = useQuery({ queryKey: ['basket', store.id, days], queryFn: () => api.get<Basket>(`/stores/${store.id}/basket?days=${days}`) })
+  const da = useQuery({ queryKey: ['discount-analysis', store.id, days], queryFn: () => api.get<DiscountAnalysis>(`/stores/${store.id}/discount-analysis?days=${days}`) })
   if (q.isLoading) return <Loading what="Analysing baskets" />
   if (q.error) return <ErrorBox error={q.error} />
   const b = q.data!
   const cur = store.currency
   return (
     <>
-      <PageHead title="Basket growth" desc="Where order value sits, how close orders are to potential thresholds, and what an incentive would cost versus what it could add. Higher AOV is only good if contribution rises too." />
+      <PageHead title="AOV & basket" desc="Where order value sits, how it moves week by week, and how close orders are to potential thresholds. Higher AOV is only good if contribution rises too."
+        actions={<Link to="/simulator" className="btn">Simulate a threshold offer →</Link>} />
       <div className="kpis">
         <Kpi label="AOV" value={money(b.aov, cur, 2)} />
         <Kpi label="Median order" value={money(b.percentiles.p50, cur, 2)} sub={`p75 ${money(b.percentiles.p75, cur)} · p90 ${money(b.percentiles.p90, cur)}`} />
@@ -46,6 +50,12 @@ function BasketFor({ store }: { store: StoreRow }) {
         <Kpi label="Merchandise margin" value={b.margin_pct == null ? '—' : pct(b.margin_pct)} sub={b.margin_basis} />
         <Kpi label="Free-shipping threshold" value={b.free_shipping_threshold ? money(b.free_shipping_threshold, cur) : 'not set'} sub="Settings → store" />
       </div>
+      {da.data && (
+        <div className="grid g2 mt">
+          <Card title="AOV by week"><TrendLine data={da.data.weekly} x="week" y="aov" name="AOV" currency={cur} /></Card>
+          <Card title="Units per order by week"><TrendLine data={da.data.weekly} x="week" y="units_per_order" name="units per order" /></Card>
+        </div>
+      )}
       <div className="grid g2 mt">
         <Card title="Order value distribution (net, per order)">
           <Bars data={b.distribution} x="from" y="orders" name="orders" fmtX={(v) => money(Number(v), cur)}
@@ -71,7 +81,6 @@ function BasketFor({ store }: { store: StoreRow }) {
         </table>
         <Source>Break-even assumes a gift costing {b.gift_cost_assumption ? money(b.gift_cost_assumption, cur, 2) : '(not set — Settings → default gift cost)'} on every qualifying order, including those already above the threshold.</Source>
       </Card>
-      <ThresholdSimulator store={store} basket={b} />
       <Card title="Free-gift candidates" className="mt">
         {!b.gift_candidates.available ? <small>Needs unit costs. Import costs to find products that are cheap to give and valued by customers.</small>
           : b.gift_candidates.candidates.length === 0 ? <small>No product meets the criteria.</small> : (
@@ -86,7 +95,7 @@ function BasketFor({ store }: { store: StoreRow }) {
   )
 }
 
-function ThresholdSimulator({ store, basket }: { store: StoreRow; basket: Basket }) {
+export function ThresholdSimulator({ store, basket }: { store: StoreRow; basket: Basket }) {
   const { days } = useApp()
   const cur = store.currency
   const [f, setF] = useState({
