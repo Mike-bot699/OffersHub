@@ -8,11 +8,10 @@ import { RecCard, RecDetail, type Rec } from '../recs'
 import { useApp } from '../state'
 import { TrendLine } from '../charts'
 import { Card, DemoBadge, Empty, ErrorBox, Kpi, Loading, PageHead, Status } from '../ui'
+import { OfferStatusBadge, TechStatusBadge, type Ev } from '../offerStatus'
 
 type Kpis = Record<string, number | null> & { contribution_missing: string[]; cost_basis: string }
 type Alert = { severity: string; kind: string; title: string; detail: string; store_code: string }
-type Ev = { id: number; store_code: string; name: string; offer_text: string | null; start_date: string | null; end_date: string | null
-  status: string; coupon_codes: string[]; verification_status: string; is_demo: boolean }
 export type DiscountAnalysis = {
   period: { start: string; end: string }
   totals: Record<string, number | null>
@@ -37,11 +36,13 @@ function OfferList({ events, empty }: { events: Ev[]; empty: string }) {
     <table>
       <tbody>{events.map((e) => (
         <tr key={e.id}>
-          <td style={{ whiteSpace: 'nowrap' }}><small>{date(e.start_date)} → {date(e.end_date)}</small></td>
           <td>{e.is_demo ? <DemoBadge /> : <span className="badge">{e.store_code}</span>}</td>
-          <td><strong>{e.name}</strong><div><small className="secondary">{e.offer_text ?? '—'}</small></div></td>
+          <td style={{ minWidth: 140 }}><strong>{e.name}</strong><div><small className="secondary">{e.offer_text ?? '—'}</small></div><small className="muted">{date(e.start_date)} → {date(e.end_date)}</small></td>
           <td className="mono">{e.coupon_codes.join(', ')}</td>
-          <td><Status value={e.status} /></td>
+          <td><div style={{ display: 'grid', gap: 4, justifyItems: 'start' }}>
+            <OfferStatusBadge status={e.status} /><TechStatusBadge ev={e} />
+            {e.conflict_open && <span className="badge critical" title={e.status_conflict ?? ''}>▲ Conflict — review</span>}
+          </div></td>
         </tr>))}
       </tbody>
     </table>
@@ -50,10 +51,13 @@ function OfferList({ events, empty }: { events: Ev[]; empty: string }) {
 
 function useOffers(storeId: number | null, includeDemo: boolean) {
   const today = new Date().toISOString().slice(0, 10)
-  const live = useQuery({ queryKey: ['events', storeId, 'live', includeDemo], queryFn: () => api.get<Ev[]>(`/events${qs({ store_id: storeId, status: 'live', include_demo: includeDemo })}`) })
-  const planned = useQuery({ queryKey: ['events', storeId, 'planned', includeDemo], queryFn: () => api.get<Ev[]>(`/events${qs({ store_id: storeId, status: 'planned', include_demo: includeDemo })}`) })
-  const upcoming = (planned.data ?? []).filter((e) => e.start_date && e.start_date >= today).sort((a, b) => (a.start_date! < b.start_date! ? -1 : 1)).slice(0, 6)
-  return { live: live.data ?? [], upcoming }
+  const q = useQuery({ queryKey: ['live-offers', storeId, includeDemo], queryFn: () => api.get<Ev[]>(`/live-offers${qs({ store_id: storeId, include_demo: includeDemo })}`) })
+  const rows = q.data ?? []
+  // Running now = marked Live or Paused, or with an open conflict; dates alone never make an offer live.
+  const live = rows.filter((e) => e.status === 'live' || e.status === 'paused' || e.conflict_open)
+  const upcoming = rows.filter((e) => (e.status === 'scheduled' || e.status === 'in_progress') && !e.conflict_open && (!e.start_date || e.start_date >= today))
+    .sort((a, b) => ((a.start_date ?? '9') < (b.start_date ?? '9') ? -1 : 1)).slice(0, 6)
+  return { live, upcoming }
 }
 
 function AlertList({ alerts }: { alerts: Alert[] }) {
@@ -111,10 +115,10 @@ function StoreCockpit() {
         </Card>
       </div>
       <div className="grid g2 mt">
-        <Card title="Live offers" extra={<Link to="/calendar">Calendar →</Link>}>
+        <Card title="Live offers" extra={<Link to="/live-offers">All live offers →</Link>}>
           <OfferList events={offers.live} empty="No offer is live." />
           <div className="section-title">Coming up</div>
-          <OfferList events={offers.upcoming} empty="Nothing planned. Add the next event in the calendar." />
+          <OfferList events={offers.upcoming} empty="Nothing scheduled. Plan the next offer in Offer planning." />
         </Card>
         <Card title="Needs attention">
           <AlertList alerts={alerts.data ?? []} />
@@ -202,7 +206,7 @@ function PortfolioCockpit() {
         <small className="muted">Click a store to open its cockpit.</small>
       </Card>
       <div className="grid g2 mt">
-        <Card title="Live and upcoming offers" extra={<Link to="/calendar">Calendar →</Link>}>
+        <Card title="Live and upcoming offers" extra={<Link to="/live-offers">All live offers →</Link>}>
           <OfferList events={offers.live} empty="No offer is live." />
           <div className="section-title">Coming up</div>
           <OfferList events={offers.upcoming} empty="Nothing planned." />

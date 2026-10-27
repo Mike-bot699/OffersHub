@@ -9,14 +9,17 @@ from sqlalchemy.orm import Session
 from app.api.common import DB, Period, get_store, to_dict
 from app.core.errors import NotFoundError, ValidationError
 from app.models import Coupon, Offer, PromoEvent, Store
-from app.models.enums import DataSource, OfferType
+from app.models.enums import OFFER_STATUSES, DataSource, OfferType, TechnicalStatus
 from app.offers.monitoring import alerts, measure_event, offer_history_stats, verify_event
 from app.offers.performance import discount_analysis, offer_performance
+from app.offers.status import STATUS_LABELS, acknowledge_conflict, set_status, sync_store_offers
+from app.offers.status import describe as describe_status
+from app.offers.status import refresh as refresh_status
 from app.services.audit import audit
 
 router = APIRouter(prefix="/api", tags=["offers"])
 
-EVENT_STATUSES = "^(planned|live|ended|cancelled|not_launched|undocumented)$"
+EVENT_STATUSES = "^(in_progress|scheduled|live|paused|completed|cancelled)$"
 
 
 class OfferIn(BaseModel):
@@ -40,7 +43,8 @@ class EventIn(BaseModel):
     offer_type: OfferType | None = None
     start_date: date | None = None
     end_date: date | None = None
-    status: str = Field(default="planned", pattern=EVENT_STATUSES)
+    status: str = Field(default="in_progress", pattern=EVENT_STATUSES)
+    status_note: str | None = None
     objective: str | None = None
     target_audience: str | None = None
     channels: list[str] = []
@@ -68,7 +72,7 @@ class EventPatch(BaseModel):
     offer_type: OfferType | None = None
     start_date: date | None = None
     end_date: date | None = None
-    status: str | None = Field(default=None, pattern=EVENT_STATUSES)
+    sync_status_from_store: bool | None = None
     objective: str | None = None
     target_audience: str | None = None
     channels: list[str] | None = None
@@ -128,45 +132,104 @@ def update_offer(offer_id: int, body: OfferIn, db: Session = DB):
     return to_dict(o)
 
 
+def _event_out(db: Session, e: PromoEvent, code: str, cur: str, demo: bool, today: date | None = None) -> dict:
+    return to_dict(e) | describe_status(e, today) | {
+        "store_code": code, "currency": cur, "is_demo": demo,
+        "offer_order_share": (e.offer_orders / e.total_orders) if e.offer_orders is not None and e.total_orders else None,
+        "technical_verified": e.technical_status != "unknown",
+    }
+
+
+def _status_filter(q, status: str | None):
+    """status: comma-separated offer statuses; 'not_set' selects offers without a status."""
+    if not status:
+        return q
+    wanted = [x.strip() for x in status.split(",") if x.strip()]
+    bad = [w for w in wanted if w not in OFFER_STATUSES and w != "not_set"]
+    if bad:
+        raise ValidationError(f"Unknown offer status: {', '.join(bad)}.")
+    cond = PromoEvent.status.in_([w for w in wanted if w != "not_set"])
+    if "not_set" in wanted:
+        cond = cond | PromoEvent.status.is_(None)
+    return q.where(cond)
+
+
+@router.get("/offer-statuses")
+def offer_statuses():
+    return {"offer_statuses": [{"value": s, "label": STATUS_LABELS[s]} for s in OFFER_STATUSES],
+            "technical_statuses": [t.value for t in TechnicalStatus]}
+
+
 @router.get("/events")
 def list_events(store_id: int | None = None, status: str | None = None, start: date | None = None,
-                end: date | None = None, include_demo: bool = False, db: Session = DB):
+                end: date | None = None, include_demo: bool = False, needs_review: bool = False, db: Session = DB):
     q = select(PromoEvent, Store.code, Store.currency, Store.is_demo).join(Store, Store.id == PromoEvent.store_id)
     if store_id:
         q = q.where(PromoEvent.store_id == store_id)
     elif not include_demo:
         q = q.where(Store.is_demo.is_(False))
-    if status:
-        q = q.where(PromoEvent.status == status)
+    q = _status_filter(q, status)
     if start:
         q = q.where((PromoEvent.end_date.is_(None)) | (PromoEvent.end_date >= start))
     if end:
         q = q.where((PromoEvent.start_date.is_(None)) | (PromoEvent.start_date <= end))
     q = q.order_by(PromoEvent.start_date.desc().nulls_last())
-    return [to_dict(e) | {"store_code": code, "currency": cur, "is_demo": demo,
-                          "offer_order_share": (e.offer_orders / e.total_orders)
-                          if e.offer_orders is not None and e.total_orders else None}
-            for e, code, cur, demo in db.execute(q)]
+    rows = [_event_out(db, e, code, cur, demo) for e, code, cur, demo in db.execute(q)]
+    return [r for r in rows if r["needs_review"]] if needs_review else rows
+
+
+@router.get("/live-offers")
+def live_offers(store_id: int | None = None, include_demo: bool = False, recent_days: int = 60, db: Session = DB):
+    """Offers that are current or need attention: every non-final status, plus completed or
+    cancelled offers that ended recently or still have something to review."""
+    from datetime import timedelta
+
+    today = date.today()
+    q = select(PromoEvent, Store.code, Store.currency, Store.is_demo).join(Store, Store.id == PromoEvent.store_id)
+    if store_id:
+        q = q.where(PromoEvent.store_id == store_id)
+    elif not include_demo:
+        q = q.where(Store.is_demo.is_(False))
+    out = []
+    for e, code, cur, demo in db.execute(q.order_by(PromoEvent.start_date.desc().nulls_last())):
+        row = _event_out(db, e, code, cur, demo, today)
+        final = e.status in ("completed", "cancelled")
+        recent = e.end_date is None or e.end_date >= today - timedelta(days=recent_days)
+        if e.status is None and e.end_date and e.end_date < today - timedelta(days=recent_days) and not row["conflict_open"]:
+            continue  # old history without a status belongs in the offer database
+        if not final or recent or row["conflict_open"]:
+            out.append(row)
+    return out
+
+
+@router.get("/events/{event_id}")
+def get_event(event_id: int, db: Session = DB):
+    e = _event(db, event_id)
+    s = db.get(Store, e.store_id)
+    return _event_out(db, e, s.code, s.currency, s.is_demo)
 
 
 @router.post("/events", status_code=201)
 def create_event(body: EventIn, db: Session = DB):
-    get_store(db, body.store_id)
+    store = get_store(db, body.store_id)
     _check_dates(body.start_date, body.end_date)
-    data = body.model_dump()
+    data = body.model_dump(exclude={"status", "status_note"})
     data["coupon_codes"] = [c.strip().upper() for c in data["coupon_codes"] if c.strip()]
-    e = PromoEvent(**data, source=DataSource.MANUAL,
+    e = PromoEvent(**data, status=None, source=DataSource.MANUAL,
                    results_source=DataSource.MANUAL if body.offer_orders is not None else None)
     db.add(e)
     db.flush()
+    set_status(db, e, body.status, source="manual", note=body.status_note or "Created")
+    refresh_status(db, e, store)
     audit(db, "event.created", "promo_event", e.id, store_id=e.store_id)
     db.commit()
-    return to_dict(e)
+    return _event_out(db, e, store.code, store.currency, store.is_demo)
 
 
 @router.patch("/events/{event_id}")
 def update_event(event_id: int, body: EventPatch, db: Session = DB):
     e = _event(db, event_id)
+    store = db.get(Store, e.store_id)
     changes = body.model_dump(exclude_unset=True)
     if "coupon_codes" in changes and changes["coupon_codes"] is not None:
         changes["coupon_codes"] = [c.strip().upper() for c in changes["coupon_codes"] if c.strip()]
@@ -177,9 +240,49 @@ def update_event(event_id: int, body: EventPatch, db: Session = DB):
         e.results_source = DataSource.MANUAL
     if {"coupon_codes", "threshold_amount", "offer_text", "start_date", "end_date"} & changes.keys():
         e.verification_status = "documented_only"
+    refresh_status(db, e, store)
     audit(db, "event.updated", "promo_event", e.id, store_id=e.store_id, details={"fields": sorted(changes)})
     db.commit()
-    return to_dict(e)
+    return _event_out(db, e, store.code, store.currency, store.is_demo)
+
+
+class StatusIn(BaseModel):
+    status: str = Field(pattern=EVENT_STATUSES)
+    note: str | None = None
+
+
+class ReviewIn(BaseModel):
+    note: str | None = None
+
+
+@router.post("/events/{event_id}/status")
+def change_status(event_id: int, body: StatusIn, db: Session = DB):
+    e = _event(db, event_id)
+    store = db.get(Store, e.store_id)
+    if e.sync_status_from_store and e.technical_status != "unknown":
+        # A person overrides the store: stop following it, so the choice is not undone at the next sync.
+        e.sync_status_from_store = False
+        body.note = (body.note + " — " if body.note else "") + "store sync turned off by this manual change"
+    set_status(db, e, body.status, source="manual", note=body.note)
+    refresh_status(db, e, store)
+    db.commit()
+    return _event_out(db, e, store.code, store.currency, store.is_demo)
+
+
+@router.post("/events/{event_id}/status/review")
+def review_conflict(event_id: int, body: ReviewIn, db: Session = DB):
+    e = _event(db, event_id)
+    store = db.get(Store, e.store_id)
+    acknowledge_conflict(db, e, body.note)
+    db.commit()
+    return _event_out(db, e, store.code, store.currency, store.is_demo)
+
+
+@router.post("/stores/{store_id}/offer-status/refresh")
+def refresh_store_status(store_id: int, db: Session = DB):
+    res = sync_store_offers(db, get_store(db, store_id))
+    db.commit()
+    return res
 
 
 @router.delete("/events/{event_id}")
@@ -194,7 +297,11 @@ def delete_event(event_id: int, db: Session = DB):
 @router.post("/events/{event_id}/verify")
 def verify(event_id: int, db: Session = DB):
     e = _event(db, event_id)
-    result = verify_event(db, e, db.get(Store, e.store_id))
+    store = db.get(Store, e.store_id)
+    result = verify_event(db, e, store)
+    refresh_status(db, e, store)
+    result["technical_status"] = e.technical_status
+    result["technical_evidence"] = e.technical_evidence
     db.commit()
     return result
 

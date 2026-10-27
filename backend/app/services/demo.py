@@ -30,6 +30,7 @@ from app.models import (
     Variant,
 )
 from app.models.enums import DataSource, Objective
+from app.offers.status import set_status
 from app.services.sync import reindex_all_customers
 
 DEMO_CODE = "DEMO"
@@ -205,9 +206,23 @@ def reset_demo(db: Session, *, days: int = 540, seed: int = 7, daily_orders: flo
     db.add_all([
         PromoEvent(store_id=store.id, name="Black Friday Week", offer_text="20% off orders over $99",
                    offer_type="percentage_discount", start_date=date(today.year - 1, 11, 22),
-                   end_date=date(today.year - 1, 11, 30), status="ended", coupon_codes=["BFWEEK"], threshold_amount=99,
+                   end_date=date(today.year - 1, 11, 30), status="completed", coupon_codes=["BFWEEK"], threshold_amount=99,
                    channels=["site", "email"], display="full_site", activation="manual_code", source=DataSource.DEMO,
                    verification_status="unverifiable"),
+        PromoEvent(store_id=store.id, name="VIP Early Access", offer_text="20% off for VIP customers over $99",
+                   offer_type="percentage_discount", start_date=today - timedelta(days=20),
+                   end_date=today + timedelta(days=10), status="paused", coupon_codes=["VIP20"], threshold_amount=99,
+                   channels=["email"], display="email_only", activation="manual_code", source=DataSource.DEMO,
+                   verification_status="unverifiable"),
+        PromoEvent(store_id=store.id, name="Holiday Gift Guide bundle", offer_text="Jacket + scarf bundle at 10% off",
+                   offer_type="bundle", start_date=today + timedelta(days=21), end_date=today + timedelta(days=45),
+                   status="in_progress", coupon_codes=[], channels=["site"], display="full_site",
+                   activation="automatic", source=DataSource.DEMO, verification_status="unverifiable"),
+        PromoEvent(store_id=store.id, name="Spring Rain Promo", offer_text="15% off rainwear",
+                   offer_type="percentage_discount", start_date=today - timedelta(days=200),
+                   end_date=today - timedelta(days=190), status="cancelled", coupon_codes=["RAIN15"],
+                   channels=["email"], display="email_only", activation="manual_code", source=DataSource.DEMO,
+                   verification_status="unverifiable", notes="Cancelled: stock of rain boots arrived late."),
         PromoEvent(store_id=store.id, name="Autumn Opener", offer_text="Extra 10% off all orders",
                    offer_type="percentage_discount", start_date=today - timedelta(days=10),
                    end_date=today + timedelta(days=4), status="live", coupon_codes=["FALL10"],
@@ -216,10 +231,17 @@ def reset_demo(db: Session, *, days: int = 540, seed: int = 7, daily_orders: flo
         PromoEvent(store_id=store.id, name="Black Friday Week", offer_text="Free scarf over $120",
                    offer_type="free_gift", start_date=date(today.year, 11, 22) if today < date(today.year, 11, 22)
                    else today + timedelta(days=30), end_date=date(today.year, 11, 30)
-                   if today < date(today.year, 11, 22) else today + timedelta(days=37), status="planned",
+                   if today < date(today.year, 11, 22) else today + timedelta(days=37), status="scheduled",
                    coupon_codes=[], threshold_amount=120, bonus="Wool Scarf", channels=["site", "email"],
                    display="full_site", activation="automatic", source=DataSource.DEMO,
                    verification_status="unverifiable"),
     ])
+    db.flush()
+    from app.offers.status import sync_store_offers
+
+    for ev in db.scalars(select(PromoEvent).where(PromoEvent.store_id == store.id)):
+        target, ev.status = ev.status, None
+        set_status(db, ev, target, source="demo", actor="demo data", note="Synthetic demo offer")
+    sync_store_offers(db, store)
     db.commit()
     return store

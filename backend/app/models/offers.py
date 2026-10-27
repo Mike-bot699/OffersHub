@@ -46,7 +46,20 @@ class PromoEvent(TimestampMixin, Base):
     offer_type: Mapped[str | None] = mapped_column(String(32))
     start_date: Mapped[date | None] = mapped_column(Date)
     end_date: Mapped[date | None] = mapped_column(Date)
-    status: Mapped[str] = mapped_column(String(16), default="planned")  # planned | live | ended | cancelled | not_launched
+    # Operational offer status (OfferStatus). NULL = not set; shown as "needs review".
+    status: Mapped[str | None] = mapped_column(String(16))
+    status_source: Mapped[str | None] = mapped_column(String(16))  # manual | import | store_sync | demo
+    status_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    status_history: Mapped[list[Any]] = mapped_column(default=list)  # [{at, from, to, source, actor, note}]
+    # Technical status (TechnicalStatus): what the connected store reports, kept separate from the above.
+    technical_status: Mapped[str] = mapped_column(String(16), default="unknown")
+    technical_evidence: Mapped[str | None] = mapped_column(Text)
+    technical_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    shopify_discount_id: Mapped[str | None] = mapped_column(String(128), index=True)
+    # When true, the offer status follows the store (used for offers detected in Shopify).
+    sync_status_from_store: Mapped[bool] = mapped_column(default=False)
+    status_conflict: Mapped[str | None] = mapped_column(Text)
+    status_conflict_ack: Mapped[str | None] = mapped_column(Text)  # the conflict text the user reviewed
     objective: Mapped[str | None] = mapped_column(String(64))
     target_audience: Mapped[str | None] = mapped_column(String(64))
     channels: Mapped[list[Any]] = mapped_column(default=list)  # site | email | sms | paid_social

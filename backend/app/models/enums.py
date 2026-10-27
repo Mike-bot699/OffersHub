@@ -124,6 +124,30 @@ class ActionStatus(StrEnum):
     ROLLED_BACK = "rolled_back"
 
 
+class OfferStatus(StrEnum):
+    """Operational stage of an offer. Set by people (or by store sync for store-detected offers),
+    never inferred from dates alone. NULL in the database means "not set — needs review"."""
+
+    IN_PROGRESS = "in_progress"   # being prepared, configured or implemented; not live
+    SCHEDULED = "scheduled"       # ready, planned to launch at a future date
+    LIVE = "live"                 # launched and running
+    PAUSED = "paused"             # temporarily suspended
+    COMPLETED = "completed"       # ended as planned
+    CANCELLED = "cancelled"       # will not launch / was cancelled
+
+
+OFFER_STATUSES = [s.value for s in OfferStatus]
+
+
+class TechnicalStatus(StrEnum):
+    """What the connected store says about the offer's discount, from API evidence only."""
+
+    ACTIVE = "active"             # discount found and active in the store
+    INACTIVE = "inactive"         # found, but expired or not yet started
+    UNAVAILABLE = "unavailable"   # store synced, but the code/discount is not there (or was deleted)
+    UNKNOWN = "unknown"           # no store evidence: not connected, not synced, or nothing to match
+
+
 class VerificationStatus(StrEnum):
     DOCUMENTED_ONLY = "documented_only"      # exists in this app / spreadsheet only
     VERIFIED = "verified_in_store"           # matching configuration found in the connected store

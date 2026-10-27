@@ -1,0 +1,223 @@
+// Offer status (operational stage, set by people or by store sync for detected offers) and
+// technical status (what the connected store shows) are kept apart everywhere they appear.
+import { useState, type ReactNode } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { api } from './api'
+import { date, label, money, num, pct } from './format'
+import { DemoBadge, ErrorBox, useSort } from './ui'
+
+export type OfferStatus = 'in_progress' | 'scheduled' | 'live' | 'paused' | 'completed' | 'cancelled'
+export type HistoryEntry = { at: string; from: string | null; to: string | null; source: string; actor: string; note: string | null }
+
+export type Ev = {
+  id: number; store_id: number; store_code: string; currency: string; is_demo: boolean; name: string; offer_text: string | null
+  offer_type: string | null; start_date: string | null; end_date: string | null; channels: string[]
+  display: string | null; activation: string | null; coupon_codes: string[]; threshold_amount: number | null; threshold_text: string | null
+  bonus: string | null; offer_orders: number | null; total_orders: number | null; offer_sales: number | null
+  offer_order_share: number | null; results_source: string | null; verification_status: string; data_issues: string[]
+  targets: Record<string, number>; analysis: string | null; conclusions: string | null; notes: string | null; source: string; source_ref: string | null
+  status: OfferStatus | null; status_label: string; status_source: string | null; status_changed_at: string | null
+  status_history: HistoryEntry[]; review_prompts: string[]; conflict_open: boolean; needs_review: boolean
+  status_conflict: string | null; technical_status: string; technical_evidence: string | null; technical_checked_at: string | null
+  technical_verified: boolean; shopify_discount_id: string | null; sync_status_from_store: boolean
+}
+
+export const OFFER_STATUSES: { value: OfferStatus; label: string; icon: string; hint: string }[] = [
+  { value: 'in_progress', label: 'In Progress', icon: '◐', hint: 'Being prepared, configured or implemented; not live yet' },
+  { value: 'scheduled', label: 'Scheduled', icon: '◷', hint: 'Ready and planned to launch at a future date' },
+  { value: 'live', label: 'Live', icon: '●', hint: 'Launched and currently running' },
+  { value: 'paused', label: 'Paused', icon: '❚❚', hint: 'Temporarily suspended' },
+  { value: 'completed', label: 'Completed', icon: '✓', hint: 'Ended as planned' },
+  { value: 'cancelled', label: 'Cancelled', icon: '✕', hint: 'Will not be launched, or was cancelled' },
+]
+const BY_VALUE = Object.fromEntries(OFFER_STATUSES.map((s) => [s.value, s]))
+// Sort order follows the offer lifecycle, with "not set" last.
+const ORDER: Record<string, number> = { in_progress: 1, scheduled: 2, live: 3, paused: 4, completed: 5, cancelled: 6 }
+
+export function OfferStatusBadge({ status }: { status: string | null }) {
+  const s = status ? BY_VALUE[status] : null
+  if (!s) return <span className="badge os-unset" title="No status recorded yet — needs review"><span aria-hidden>?</span>Not set</span>
+  return <span className={`badge os-${s.value}`} title={s.hint}><span aria-hidden>{s.icon}</span>{s.label}</span>
+}
+
+const TECH: Record<string, { text: string; cls: string; icon: string }> = {
+  active: { text: 'Active in store', cls: 'good', icon: '●' },
+  inactive: { text: 'Inactive in store', cls: 'warning', icon: '○' },
+  unavailable: { text: 'Not found in store', cls: 'critical', icon: '✕' },
+  unknown: { text: 'Not verified', cls: 'ts-unknown', icon: '–' },
+}
+
+export function TechStatusBadge({ ev }: { ev: Pick<Ev, 'technical_status' | 'technical_evidence'> }) {
+  const t = TECH[ev.technical_status] ?? TECH.unknown
+  return <span className={`badge ${t.cls}`} title={ev.technical_evidence ?? undefined}><span aria-hidden>{t.icon}</span>{t.text}</span>
+}
+
+export const statusRank = (s: string | null) => (s ? ORDER[s] ?? 9 : 9)
+
+/** Multi-select filter by offer status, with counts. An empty selection shows everything. */
+export function StatusFilter({ rows, value, onChange }: { rows: Ev[]; value: string[]; onChange: (v: string[]) => void }) {
+  const count = (s: string) => rows.filter((r) => (r.status ?? 'not_set') === s).length
+  const opts = [...OFFER_STATUSES.map((s) => ({ value: s.value as string, label: s.label })), { value: 'not_set', label: 'Not set' }]
+  const toggle = (s: string) => onChange(value.includes(s) ? value.filter((x) => x !== s) : [...value, s])
+  return (
+    <div className="chips" role="group" aria-label="Filter by offer status">
+      <button className={value.length === 0 ? 'chip on' : 'chip'} onClick={() => onChange([])}>All <span className="muted">{rows.length}</span></button>
+      {opts.map((o) => (
+        <button key={o.value} className={value.includes(o.value) ? 'chip on' : 'chip'} aria-pressed={value.includes(o.value)} onClick={() => toggle(o.value)}>
+          <OfferStatusBadge status={o.value === 'not_set' ? null : o.value} /> <span className="muted">{count(o.value)}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+type Row = Ev & { _status: number; _tech: string; _start: string }
+
+/** The one offers table used by Live offers, Offer planning and the Offer database. */
+export function OffersTable({ rows, onOpen, showResults = false, empty }: { rows: Ev[]; onOpen: (e: Ev) => void; showResults?: boolean; empty: ReactNode }) {
+  const [filter, setFilter] = useState<string[]>([])
+  const [reviewOnly, setReviewOnly] = useState(false)
+  const shown = rows.filter((r) => (filter.length === 0 || filter.includes(r.status ?? 'not_set')) && (!reviewOnly || r.needs_review))
+  const { sorted, th } = useSort<Row>(shown.map((r) => ({ ...r, _status: statusRank(r.status), _tech: r.technical_status, _start: r.start_date ?? '' })), '_start')
+  const toReview = rows.filter((r) => r.needs_review).length
+  return (
+    <>
+      <div className="row" style={{ marginBottom: 10, justifyContent: 'space-between' }}>
+        <StatusFilter rows={rows} value={filter} onChange={setFilter} />
+        <label className="row" style={{ gap: 6 }}>
+          <input type="checkbox" checked={reviewOnly} onChange={(e) => setReviewOnly(e.target.checked)} />
+          <span className="secondary">Needs review only ({toReview})</span>
+        </label>
+      </div>
+      {!sorted.length ? empty : (
+        <div className="table-wrap" style={{ maxHeight: 640 }}>
+          <table>
+            <thead><tr>
+              {th('_start', 'Dates', false)}<th>Store</th><th>Offer</th><th>Codes</th>
+              {th('_status', 'Offer status', false)}{th('_tech', 'Technical status', false)}
+              {showResults && <><th className="num">Offer orders</th><th className="num">Share of orders</th><th className="num">Offer sales</th></>}
+            </tr></thead>
+            <tbody>{sorted.map((e) => (
+              <tr key={e.id} className="clickable" onClick={() => onOpen(e)}>
+                <td style={{ whiteSpace: 'nowrap' }}>{e.start_date ? `${date(e.start_date)} → ${date(e.end_date)}` : <span className="muted">no dates</span>}</td>
+                <td>{e.is_demo ? <DemoBadge /> : <span className="badge">{e.store_code}</span>}</td>
+                <td style={{ minWidth: 220 }}>
+                  <strong>{e.name}</strong>
+                  {e.data_issues?.length > 0 && <span className="badge warning" title={e.data_issues.join('\n')} style={{ marginLeft: 6 }}>▲ {e.data_issues.length}</span>}
+                  <div><small className="secondary">{e.offer_text ?? '—'}</small></div>
+                  {e.sync_status_from_store && <div><small className="muted" title="Offer status follows the store's discount">⇄ Follows store</small></div>}
+                </td>
+                <td className="mono">{e.coupon_codes.join(', ') || '—'}</td>
+                <td style={{ whiteSpace: 'nowrap' }}>
+                  <OfferStatusBadge status={e.status} />
+                  {e.conflict_open && <div><span className="badge critical" title={e.status_conflict ?? ''}>▲ Conflict — review</span></div>}
+                  {!e.conflict_open && e.review_prompts.length > 0 && <div><small className="warning-ink" title={e.review_prompts.join('\n')}>Review: {e.review_prompts[0]}</small></div>}
+                </td>
+                <td style={{ whiteSpace: 'nowrap' }}><TechStatusBadge ev={e} /></td>
+                {showResults && <>
+                  <td className="num">{num(e.offer_orders)}</td>
+                  <td className="num">{pct(e.offer_order_share)}</td>
+                  <td className="num">{money(e.offer_sales, e.currency)}</td>
+                </>}
+              </tr>))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  )
+}
+
+const SOURCE_TEXT: Record<string, string> = { manual: 'Manual', import: 'Workbook import', store_sync: 'Store sync', review: 'Conflict review', demo: 'Demo data' }
+
+/** Status section of the offer drawer: change, review conflicts, technical evidence, history. */
+export function StatusPanel({ ev, onChanged }: { ev: Ev; onChanged: (e: Ev) => void }) {
+  const qc = useQueryClient()
+  const [next, setNext] = useState<string>(ev.status ?? '')
+  const [note, setNote] = useState('')
+  const done = (e: Ev) => { qc.invalidateQueries({ queryKey: ['events'] }); qc.invalidateQueries({ queryKey: ['live-offers'] }); setNote(''); onChanged(e) }
+  const change = useMutation({ mutationFn: () => api.post<Ev>(`/events/${ev.id}/status`, { status: next, note: note || null }), onSuccess: done })
+  const review = useMutation({ mutationFn: () => api.post<Ev>(`/events/${ev.id}/status/review`, { note: note || null }), onSuccess: done })
+  const recheck = useMutation({ mutationFn: async () => { await api.post(`/events/${ev.id}/verify`); return api.get<Ev>(`/events/${ev.id}`) }, onSuccess: done })
+  const follow = useMutation({ mutationFn: (v: boolean) => api.patch<Ev>(`/events/${ev.id}`, { sync_status_from_store: v }), onSuccess: done })
+  const overridesStore = ev.sync_status_from_store && ev.technical_verified
+  return (
+    <div className="status-panel">
+      <div className="status-cols">
+        <div>
+          <div className="k-label">Offer status <small className="muted">(operational stage)</small></div>
+          <div className="row" style={{ gap: 6, marginTop: 4 }}>
+            <OfferStatusBadge status={ev.status} />
+            {ev.status_changed_at && <small className="muted">since {date(ev.status_changed_at)} · {SOURCE_TEXT[ev.status_source ?? ''] ?? label(ev.status_source)}</small>}
+          </div>
+        </div>
+        <div>
+          <div className="k-label">Technical status <small className="muted">(connected store)</small></div>
+          <div className="row" style={{ gap: 6, marginTop: 4 }}>
+            <TechStatusBadge ev={ev} />
+            {ev.technical_checked_at && <small className="muted">checked {date(ev.technical_checked_at)}</small>}
+          </div>
+          <small className="secondary" style={{ display: 'block', marginTop: 4 }}>
+            {ev.technical_evidence}
+            {!ev.technical_verified && ' The offer status is managed by you and is not confirmed by the store.'}
+          </small>
+        </div>
+      </div>
+
+      {ev.conflict_open && (
+        <div className="notice critical mt">
+          <strong>Status conflict — review required.</strong> {ev.status_conflict}
+          <div><small>Change the offer status below if the store is right, or mark it reviewed if the offer status is right (for example, the store has not been re-synced yet).</small></div>
+        </div>
+      )}
+      {!ev.conflict_open && ev.status_conflict && <div className="notice info mt"><small>Reviewed conflict: {ev.status_conflict}</small></div>}
+      {ev.review_prompts.length > 0 && (
+        <div className="notice warning mt"><strong>Check the status</strong>
+          <ul className="tight">{ev.review_prompts.map((p, i) => <li key={i}>{p}</li>)}</ul>
+          <small>Dates alone never change the status: confirm what actually happened.</small>
+        </div>
+      )}
+
+      <div className="row mt" style={{ alignItems: 'flex-end' }}>
+        <label className="field" style={{ minWidth: 160 }}>Set offer status
+          <select value={next} onChange={(e) => setNext(e.target.value)}>
+            {!ev.status && <option value="">Not set</option>}
+            {OFFER_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+          </select>
+        </label>
+        <label className="field" style={{ flex: 1, minWidth: 180 }}>Note (optional)
+          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Why the status changes" />
+        </label>
+        <button className="primary" disabled={!next || next === ev.status || change.isPending} onClick={() => change.mutate()}>Update status</button>
+        {ev.conflict_open && <button disabled={review.isPending} onClick={() => review.mutate()}>Mark reviewed</button>}
+      </div>
+      {overridesStore && next !== (ev.status ?? '') && <small className="warning-ink">This offer follows the store. A manual change stops that, so the next sync will not undo it.</small>}
+
+      <div className="row mt" style={{ gap: 12 }}>
+        <button onClick={() => recheck.mutate()} disabled={recheck.isPending}>{recheck.isPending ? 'Checking…' : 'Re-check store'}</button>
+        {ev.shopify_discount_id && (
+          <label className="row" style={{ gap: 6 }}>
+            <input type="checkbox" checked={ev.sync_status_from_store} disabled={follow.isPending} onChange={(e) => follow.mutate(e.target.checked)} />
+            <span className="secondary">Follow the store's status for this offer</span>
+          </label>
+        )}
+      </div>
+      <ErrorBox error={change.error ?? review.error ?? recheck.error ?? follow.error} />
+
+      <div className="section-title">Status history</div>
+      {!ev.status_history.length ? <small className="muted">No status change recorded.</small> : (
+        <ol className="history">
+          {[...ev.status_history].reverse().map((h, i) => (
+            <li key={i}>
+              <span className="mono muted">{new Date(h.at).toLocaleString()}</span>{' '}
+              {h.source === 'review' ? <strong>Conflict reviewed</strong> : <>
+                <OfferStatusBadge status={h.from} /> → <OfferStatusBadge status={h.to} />
+              </>}
+              <small className="muted"> · {SOURCE_TEXT[h.source] ?? label(h.source)}</small>
+              {h.note && <div><small className="secondary">{h.note}</small></div>}
+            </li>))}
+        </ol>
+      )}
+    </div>
+  )
+}

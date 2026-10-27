@@ -69,7 +69,10 @@ def test_workbook_import_normalises_and_flags(db):
     assert autumn.threshold_amount is None and autumn.threshold_text == "none"
     assert autumn.display == "full_site" and autumn.activation == "manual_code"
     assert autumn.verification_status == "documented_only"
-    assert autumn.status == "ended" and autumn.offer_type == "percentage_discount"
+    # results recorded in the workbook -> completed, with the reason kept in the history
+    assert autumn.status == "completed" and autumn.offer_type == "percentage_discount"
+    assert autumn.status_history[-1]["source"] == "import" and "results" in autumn.status_history[-1]["note"]
+    assert autumn.technical_status == "unknown"  # no connected store: not verified
 
     trick = events["Trick or Treat"]
     assert trick.threshold_amount == 99 and trick.activation == "automatic"
@@ -80,8 +83,8 @@ def test_workbook_import_normalises_and_flags(db):
     assert any("before start date" in i for i in broken)
     assert any("exceed total orders" in i for i in broken)
     assert events["Broken"].offer_type == "quantity_incentive"
-    assert events["Placeholder"].status == "undocumented"
-    assert events["Not launched"].status == "not_launched"
+    assert events["Placeholder"].status is None  # nothing proves its stage: left for review
+    assert events["Not launched"].status == "cancelled"
 
     bbb = db.scalar(select(Store).where(Store.code == "BBB"))
     assert bbb.commercial_settings["free_shipping_threshold"] == 90

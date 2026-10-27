@@ -4,23 +4,51 @@ import { api, qs } from '../api'
 import { date, label, money, num, pct } from '../format'
 import { useApp } from '../state'
 import { Card, Drawer, Empty, ErrorBox, Field, Loading, PageHead, Source, Status, Tabs } from '../ui'
+import { OFFER_STATUSES, OffersTable, OfferStatusBadge, StatusPanel, TechStatusBadge, type Ev } from '../offerStatus'
 
-type Ev = {
-  id: number; store_id: number; store_code: string; currency: string; is_demo: boolean; name: string; offer_text: string | null
-  offer_type: string | null; start_date: string | null; end_date: string | null; status: string; channels: string[]
-  display: string | null; activation: string | null; coupon_codes: string[]; threshold_amount: number | null; threshold_text: string | null
-  bonus: string | null; offer_orders: number | null; total_orders: number | null; offer_sales: number | null
-  offer_order_share: number | null; results_source: string | null; verification_status: string; data_issues: string[]
-  targets: Record<string, number>; analysis: string | null; conclusions: string | null; notes: string | null; source: string; source_ref: string | null
-}
 type Alert = { severity: string; kind: string; title: string; detail: string; store_code: string }
+
+export function LiveOffers() {
+  const { storeId, includeDemo } = useApp()
+  const qc = useQueryClient()
+  const [edit, setEdit] = useState<Ev | null>(null)
+  const q = useQuery({ queryKey: ['live-offers', storeId, includeDemo], queryFn: () => api.get<Ev[]>(`/live-offers${qs({ store_id: storeId, include_demo: includeDemo })}`) })
+  const refresh = useMutation({ mutationFn: () => api.post(`/stores/${storeId}/offer-status/refresh`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['live-offers'] }); qc.invalidateQueries({ queryKey: ['events'] }) } })
+  const rows = q.data ?? []
+  const n = (s: string) => rows.filter((r) => r.status === s).length
+  return (
+    <>
+      <PageHead title="Live offers" desc="What is running, about to run or paused right now — with each offer's operational status next to what the connected store actually shows."
+        actions={storeId ? <button onClick={() => refresh.mutate()} disabled={refresh.isPending}>{refresh.isPending ? 'Checking…' : 'Re-check store status'}</button> : undefined} />
+      <ErrorBox error={refresh.error} />
+      {q.isLoading ? <Loading /> : q.error ? <ErrorBox error={q.error} /> : (
+        <>
+          <div className="kpis" style={{ marginBottom: 14 }}>
+            <div className="kpi"><div className="k-label">Live</div><div className="k-value">{n('live')}</div></div>
+            <div className="kpi"><div className="k-label">Scheduled</div><div className="k-value">{n('scheduled')}</div></div>
+            <div className="kpi"><div className="k-label">In progress</div><div className="k-value">{n('in_progress')}</div></div>
+            <div className="kpi"><div className="k-label">Paused</div><div className="k-value">{n('paused')}</div></div>
+            <div className="kpi"><div className="k-label">Status conflicts</div><div className={`k-value ${rows.some((r) => r.conflict_open) ? 'critical-ink' : ''}`}>{rows.filter((r) => r.conflict_open).length}</div><div className="k-sub">offer status vs store</div></div>
+            <div className="kpi"><div className="k-label">Need review</div><div className="k-value">{rows.filter((r) => r.needs_review).length}</div></div>
+          </div>
+          <Card title="Offers">
+            <OffersTable rows={rows} onOpen={setEdit} empty={<Empty title="No current offers">Plan one in Offer planning, or connect the store to detect its active discounts.</Empty>} />
+            <Source>Offer status is the operational stage you (or store sync, for offers detected in the store) recorded; it never changes because a date passes. Technical status is the evidence from the connected store's synced discounts. Completed and cancelled offers stay here for 60 days.</Source>
+          </Card>
+        </>
+      )}
+      <EventEditor ev={edit} onClose={() => setEdit(null)} />
+    </>
+  )
+}
 
 export function OffersCalendar() {
   const [tab, setTab] = useState('events')
   return (
     <>
-      <PageHead title="Offer calendar" desc="Every planned, live and past promotion with its codes, targets and results, plus the checks that need attention before and during each offer." />
-      <Tabs value={tab} onChange={setTab} tabs={[{ id: 'events', label: 'Events' }, { id: 'alerts', label: 'Monitoring' }]} />
+      <PageHead title="Offer planning" desc="Plan upcoming offers and keep every past one documented: dates, codes, targets, results and status — plus the checks that need attention before and during each offer." />
+      <Tabs value={tab} onChange={setTab} tabs={[{ id: 'events', label: 'Planned & upcoming' }, { id: 'alerts', label: 'Monitoring' }]} />
       {tab === 'events' && <Events />}
       {tab === 'alerts' && <Alerts />}
     </>
@@ -28,14 +56,15 @@ export function OffersCalendar() {
 }
 
 export function OfferDatabase() {
-  const [tab, setTab] = useState('library')
+  const [tab, setTab] = useState('all')
   return (
     <>
-      <PageHead title="Offer database" desc="Reusable offer mechanics, every coupon code (synced from the store or documented), the historical record of what worked, and the workbook import." />
+      <PageHead title="Offer database" desc="Every offer ever run or planned with its status, reusable offer mechanics, every coupon code (synced from the store or documented), the historical record of what worked, and the workbook import." />
       <Tabs value={tab} onChange={setTab} tabs={[
-        { id: 'library', label: 'Offer library' }, { id: 'coupons', label: 'Coupon codes' },
+        { id: 'all', label: 'All offers' }, { id: 'library', label: 'Offer templates' }, { id: 'coupons', label: 'Coupon codes' },
         { id: 'history', label: 'What worked' }, { id: 'import', label: 'Import workbook' },
       ]} />
+      {tab === 'all' && <AllOffers />}
       {tab === 'library' && <Library />}
       {tab === 'coupons' && <Coupons />}
       {tab === 'history' && <History />}
@@ -46,40 +75,32 @@ export function OfferDatabase() {
 
 function Events() {
   const { storeId, includeDemo } = useApp()
-  const [status, setStatus] = useState('')
   const [edit, setEdit] = useState<Ev | 'new' | null>(null)
-  const q = useQuery({ queryKey: ['events', storeId, status, includeDemo], queryFn: () => api.get<Ev[]>(`/events${qs({ store_id: storeId, status, include_demo: includeDemo })}`) })
+  const today = new Date().toISOString().slice(0, 10)
+  const q = useQuery({ queryKey: ['events', storeId, 'all', includeDemo], queryFn: () => api.get<Ev[]>(`/events${qs({ store_id: storeId, include_demo: includeDemo })}`) })
+  // Planning view: anything not yet finished, or starting/ending from today on.
+  const rows = (q.data ?? []).filter((e) => !['completed', 'cancelled'].includes(e.status ?? '') || (e.end_date ?? '') >= today)
   return (
-    <Card title="Promotional events" extra={
-      <div className="row">
-        <select value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option value="">All statuses</option>
-          {['planned', 'live', 'ended', 'not_launched', 'cancelled', 'undocumented'].map((s) => <option key={s} value={s}>{label(s)}</option>)}
-        </select>
-        <button className="primary" onClick={() => setEdit('new')}>New event</button>
-      </div>}>
-      {q.isLoading ? <Loading /> : q.error ? <ErrorBox error={q.error} /> : !q.data?.length ? <Empty title="No events">Create one or import the offers workbook.</Empty> : (
-        <div className="table-wrap" style={{ maxHeight: 640 }}>
-          <table>
-            <thead><tr><th>Dates</th><th>Store</th><th>Event</th><th>Offer</th><th>Codes</th><th className="num">Offer orders</th><th className="num">Share of orders</th><th className="num">Offer sales</th><th>Status</th><th>Verified?</th></tr></thead>
-            <tbody>{q.data.map((e) => (
-              <tr key={e.id} className="clickable" onClick={() => setEdit(e)}>
-                <td style={{ whiteSpace: 'nowrap' }}>{e.start_date ? `${date(e.start_date)} → ${date(e.end_date)}` : <span className="muted">no dates</span>}</td>
-                <td>{e.is_demo ? <span className="badge demo">DEMO</span> : <span className="badge">{e.store_code}</span>}</td>
-                <td>{e.name}{e.data_issues?.length > 0 && <span className="badge warning" title={e.data_issues.join('\n')} style={{ marginLeft: 6 }}>▲ {e.data_issues.length}</span>}</td>
-                <td style={{ minWidth: 220 }}><small>{e.offer_text ?? '—'}</small>{e.offer_type && <div><small className="muted">{label(e.offer_type)}</small></div>}</td>
-                <td className="mono">{e.coupon_codes.join(', ') || '—'}</td>
-                <td className="num">{num(e.offer_orders)}</td>
-                <td className="num">{pct(e.offer_order_share)}</td>
-                <td className="num">{money(e.offer_sales, e.currency)}</td>
-                <td><Status value={e.status} /></td>
-                <td><Status value={e.verification_status} /></td>
-              </tr>))}
-            </tbody>
-          </table>
-        </div>
+    <Card title="Planned & upcoming offers" extra={<button className="primary" onClick={() => setEdit('new')}>New offer</button>}>
+      {q.isLoading ? <Loading /> : q.error ? <ErrorBox error={q.error} /> : (
+        <OffersTable rows={rows} onOpen={setEdit} empty={<Empty title="Nothing planned">Create an offer or import the offers workbook. Past offers are in the Offer database.</Empty>} />
       )}
-      <Source>Recorded results are as documented (spreadsheet or manual). "Share of orders" counts orders that used the offer — not orders caused by it.</Source>
+      <Source>New offers start as In Progress; move them to Scheduled when ready and to Live when launched. Dates never change the status on their own.</Source>
+      <EventEditor ev={edit} onClose={() => setEdit(null)} />
+    </Card>
+  )
+}
+
+function AllOffers() {
+  const { storeId, includeDemo } = useApp()
+  const [edit, setEdit] = useState<Ev | 'new' | null>(null)
+  const q = useQuery({ queryKey: ['events', storeId, 'all', includeDemo], queryFn: () => api.get<Ev[]>(`/events${qs({ store_id: storeId, include_demo: includeDemo })}`) })
+  return (
+    <Card title="All offers" extra={<button className="primary" onClick={() => setEdit('new')}>New offer</button>}>
+      {q.isLoading ? <Loading /> : q.error ? <ErrorBox error={q.error} /> : (
+        <OffersTable rows={q.data ?? []} onOpen={setEdit} showResults empty={<Empty title="No offers">Create one or import the offers workbook.</Empty>} />
+      )}
+      <Source>Recorded results are as documented (spreadsheet or manual). "Share of orders" counts orders that used the offer — not orders caused by it. Imported history gets a status only where the workbook proves it (results recorded → Completed, "not launched" → Cancelled); the rest is "Not set" for you to confirm.</Source>
       <EventEditor ev={edit} onClose={() => setEdit(null)} />
     </Card>
   )
@@ -89,7 +110,9 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
   const { stores, storeId, meta } = useApp()
   const qc = useQueryClient()
   const isNew = ev === 'new'
-  const base = isNew ? null : ev
+  // Keep the drawer in step with status changes made inside it.
+  const [fresh, setFresh] = useState<Ev | null>(null)
+  const base = isNew || ev === null ? null : fresh && fresh.id === ev.id ? fresh : ev
   const [f, setF] = useState<Record<string, string>>({})
   const v = (k: string, fallback: unknown) => (k in f ? f[k] : fallback == null ? '' : String(fallback))
   const results = useQuery({ queryKey: ['event-results', base?.id], enabled: !!base,
@@ -107,28 +130,30 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
       if (isNew) return api.post('/events', { store_id: Number(f.store_id ?? storeId ?? stores[0]?.id), name: f.name ?? '', ...body })
       return api.patch(`/events/${base!.id}`, body)
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['events'] }); setF({}); onClose() },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['events'] }); qc.invalidateQueries({ queryKey: ['live-offers'] }); setF({}); setFresh(null); onClose() },
   })
   const verify = useMutation({ mutationFn: () => api.post<{ status: string; findings: string[] }>(`/events/${base!.id}/verify`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['events'] }) })
-  const del = useMutation({ mutationFn: () => api.del(`/events/${base!.id}`), onSuccess: () => { qc.invalidateQueries({ queryKey: ['events'] }); onClose() } })
+    onSuccess: async () => { qc.invalidateQueries({ queryKey: ['events'] }); qc.invalidateQueries({ queryKey: ['live-offers'] }); setFresh(await api.get<Ev>(`/events/${base!.id}`)) } })
+  const del = useMutation({ mutationFn: () => api.del(`/events/${base!.id}`), onSuccess: () => { qc.invalidateQueries({ queryKey: ['events'] }); qc.invalidateQueries({ queryKey: ['live-offers'] }); onClose() } })
   const set = (k: string) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value })
   if (ev === null) return null
   const m = results.data?.measured
   return (
-    <Drawer open onClose={() => { setF({}); onClose() }} title={<h2>{isNew ? 'New event' : base!.name}</h2>}>
+    <Drawer open onClose={() => { setF({}); setFresh(null); onClose() }} title={<h2>{isNew ? 'New offer' : base!.name}</h2>}>
       {base && (
         <div className="row" style={{ marginBottom: 10 }}>
-          <span className="badge">{base.store_code}</span><Status value={base.status} /><Status value={base.verification_status} />
+          <span className="badge">{base.store_code}</span><OfferStatusBadge status={base.status} /><TechStatusBadge ev={base} />
           <small className="muted">Source: {label(base.source)}{base.source_ref ? ` (${base.source_ref})` : ''}</small>
         </div>
       )}
+      {base && <StatusPanel key={`${base.id}-${base.status}`} ev={base} onChanged={setFresh} />}
+      {base && <div className="section-title">Offer details</div>}
       {base?.data_issues?.length ? <div className="notice warning" style={{ marginBottom: 10 }}><strong>Data issues found on import</strong><ul className="tight">{base.data_issues.map((d, i) => <li key={i}>{d}</li>)}</ul></div> : null}
       <div className="form-grid">
         {isNew && <Field label="Store"><select value={f.store_id ?? storeId ?? stores[0]?.id ?? ''} onChange={set('store_id')}>{stores.filter((s) => !s.is_demo).map((s) => <option key={s.id} value={s.id}>{s.code}</option>)}</select></Field>}
         <Field label="Name"><input value={v('name', base?.name)} onChange={set('name')} /></Field>
         <Field label="Offer type"><select value={v('offer_type', base?.offer_type)} onChange={set('offer_type')}><option value="">—</option>{meta?.offer_types.map((t) => <option key={t} value={t}>{label(t)}</option>)}</select></Field>
-        <Field label="Status"><select value={v('status', base?.status ?? 'planned')} onChange={set('status')}>{['planned', 'live', 'ended', 'cancelled', 'not_launched', 'undocumented'].map((s) => <option key={s} value={s}>{label(s)}</option>)}</select></Field>
+        {isNew && <Field label="Offer status"><select value={f.status ?? 'in_progress'} onChange={set('status')}>{OFFER_STATUSES.map((s) => <option key={s.value} value={s.value} title={s.hint}>{s.label}</option>)}</select></Field>}
         <Field label="Start"><input type="date" value={v('start_date', base?.start_date)} onChange={set('start_date')} /></Field>
         <Field label="End"><input type="date" value={v('end_date', base?.end_date)} onChange={set('end_date')} /></Field>
         <Field label="Coupon codes (comma separated)"><input value={v('coupon_codes', base?.coupon_codes.join(', '))} onChange={set('coupon_codes')} /></Field>
@@ -158,8 +183,9 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
             </div>
           )}
           {m && m.note && <small className="muted">{String(m.note)}</small>}
-          <div className="section-title">Store verification</div>
-          <button onClick={() => verify.mutate()} disabled={verify.isPending}>Verify against store</button>
+          <div className="section-title">Configuration check against the store</div>
+          <small className="secondary" style={{ display: 'block', marginBottom: 6 }}>Compares codes, threshold and dates with the store's synced discounts. It also refreshes the technical status; it never changes the offer status.</small>
+          <button onClick={() => verify.mutate()} disabled={verify.isPending}>Check configuration</button>
           {verify.data && <div className="notice info mt"><Status value={verify.data.status} /><ul className="tight">{verify.data.findings.map((x, i) => <li key={i}>{x}</li>)}</ul></div>}
         </>
       )}
@@ -167,6 +193,7 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
         <button className="primary" onClick={() => save.mutate()} disabled={save.isPending || (!isNew && Object.keys(f).length === 0)}>Save</button>
         {base && <button className="danger" onClick={() => confirm(`Delete event "${base.name}"?`) && del.mutate()}>Delete</button>}
       </div>
+      {isNew && <div className="notice info mt"><small>Technical status starts as <strong>Not verified</strong>: it is checked against the connected store's synced discounts by the offer's coupon codes.</small></div>}
       <div className="mt"><ErrorBox error={save.error ?? verify.error ?? del.error} /></div>
     </Drawer>
   )
@@ -198,10 +225,10 @@ function Library() {
   if (q.isLoading) return <Loading />
   if (q.error) return <ErrorBox error={q.error} />
   return (
-    <Card title="Offer library" extra={<small>Reusable mechanics; events reference them</small>}>
+    <Card title="Offer templates" extra={<small>Reusable mechanics; offers reference them. Templates have no status — each offer that uses one has its own.</small>}>
       {!q.data?.length ? <Empty title="No offers yet">They are created from imported events or added manually.</Empty> : (
         <table>
-          <thead><tr><th>Offer</th><th>Type</th><th>Mechanic</th><th className="num">Used in events</th><th>Source</th></tr></thead>
+          <thead><tr><th>Offer</th><th>Type</th><th>Mechanic</th><th className="num">Used in offers</th><th>Source</th></tr></thead>
           <tbody>{q.data.map((o) => (
             <tr key={o.id}><td>{o.name}{o.description && <div><small className="muted">{o.description}</small></div>}</td><td>{label(o.offer_type)}</td>
               <td className="mono" style={{ fontSize: 11.5 }}>{Object.entries(o.mechanic).filter(([k]) => k !== 'inferred').map(([k, val]) => `${k}: ${JSON.stringify(val)}`).join(' · ')}{o.mechanic.inferred ? <span className="badge" style={{ marginLeft: 4 }}>inferred</span> : null}</td>
@@ -222,7 +249,7 @@ function Coupons() {
       {!q.data?.length ? <small>No coupons.</small> : (
         <div className="table-wrap" style={{ maxHeight: 600 }}>
           <table>
-            <thead><tr><th>Store</th><th>Code</th><th>Source</th><th>Value</th><th className="num">Minimum</th><th>Valid</th><th className="num">Uses</th><th>Status</th></tr></thead>
+            <thead><tr><th>Store</th><th>Code</th><th>Source</th><th>Value</th><th className="num">Minimum</th><th>Valid</th><th className="num">Uses</th><th>Status in store</th></tr></thead>
             <tbody>{q.data.map((c) => (
               <tr key={c.id}><td><span className="badge">{c.store_code}</span></td><td className="mono">{c.code}</td><td>{label(c.source)}</td>
                 <td>{c.value_type === 'percent' ? `${c.value}%` : c.value_type === 'fixed' ? `${c.value} off` : label(c.value_type)}</td>

@@ -72,7 +72,7 @@ All configuration is environment-based (`backend/.env` or real environment varia
 ## Tests
 
 ```bash
-cd backend && uv run pytest        # 87 tests: metrics, simulations, parsing, imports, Shopify client/sync
+cd backend && uv run pytest        # 98 tests: metrics, simulations, parsing, imports, offer status, Shopify client/sync
                                    # (against an emulated API), analytics, engine, experiments, approvals, HTTP API
 uv run ruff check app tests
 cd ../frontend && npm run build    # type-check + production build

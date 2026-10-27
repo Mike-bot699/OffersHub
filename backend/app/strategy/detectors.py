@@ -801,7 +801,7 @@ def promo_without_lift(ctx: Context) -> list[RecDraft]:
     weak = []
     for ev in perf.get("events", []):
         m = ev.get("measured")
-        if not m or not m.get("change") or ev["status"] == "live":
+        if not m or not m.get("change") or ev["status"] in ("live", "paused", "scheduled", "in_progress"):
             continue
         ch = m["change"].get("net_sales_per_day")
         given = m.get("offer_discounts") or m["during"]["discounts"]

@@ -134,7 +134,17 @@ def alerts(db: Session, store: Store, *, today: date | None = None, horizon_days
         out.append({"severity": severity, "kind": kind, "title": title, "detail": detail,
                     "event_id": event.id if event else None, "store_id": store.id, "store_code": store.code, **extra})
 
-    active = [e for e in events if e.status not in ("cancelled", "not_launched", "undocumented")]
+    from app.offers.status import STATUS_LABELS, review_prompts
+
+    for ev in events:
+        if ev.status_conflict and ev.status_conflict != ev.status_conflict_ack:
+            add("critical" if ev.status == "live" else "warning", "status_conflict",
+                f"{ev.name}: offer status and store disagree", ev.status_conflict, ev)
+        for p in review_prompts(ev, today):
+            if ev.status is None and ev.end_date and ev.end_date < today - timedelta(days=60):
+                continue  # old undocumented history is listed in the database, not as an alert
+            add("warning", "status_review", f"{ev.name} ({STATUS_LABELS.get(ev.status)}): review status", p, ev)
+    active = [e for e in events if e.status not in ("cancelled", "completed")]
     for ev in active:
         if ev.start_date and today <= ev.start_date <= today + timedelta(days=horizon_days):
             missing = []
@@ -240,7 +250,7 @@ def alerts(db: Session, store: Store, *, today: date | None = None, horizon_days
 def offer_history_stats(db: Session, store_ids: list[int]) -> dict:
     """Aggregate recorded results of past events (documented, not causal) by offer type and display."""
     events = db.scalars(select(PromoEvent).where(PromoEvent.store_id.in_(store_ids),
-                                                 PromoEvent.status == "ended",
+                                                 PromoEvent.status == "completed",
                                                  PromoEvent.total_orders.is_not(None),
                                                  PromoEvent.offer_orders.is_not(None))).all()
     groups: dict[tuple, list[float]] = defaultdict(list)

@@ -9,7 +9,7 @@ import Stores from './pages/Stores'
 import Products from './pages/Products'
 import Basket from './pages/Basket'
 import Discounts from './pages/Discounts'
-import { OfferDatabase, OffersCalendar } from './pages/Offers'
+import { LiveOffers, OfferDatabase, OffersCalendar } from './pages/Offers'
 import OfferAnalysis from './pages/OfferAnalysis'
 import Simulator from './pages/Simulator'
 import Analytics from './pages/Analytics'
@@ -21,9 +21,10 @@ import Settings from './pages/Settings'
 // Main work: offers, discounts and order value. Secondary: data sources and set-up.
 const NAV_MAIN = [
   ['/', 'Overview'],
+  ['/live-offers', 'Live offers'],
   ['/basket', 'AOV & basket'],
   ['/discounts', 'Discounts'],
-  ['/calendar', 'Offer calendar'],
+  ['/calendar', 'Offer planning'],
   ['/offer-database', 'Offer database'],
   ['/offer-analysis', 'Offer analysis'],
   ['/opportunities', 'Opportunities'],
@@ -107,6 +108,7 @@ export default function App() {
             <Route path="/" element={<Overview />} />
             <Route path="/basket" element={<Basket />} />
             <Route path="/discounts" element={<Discounts />} />
+            <Route path="/live-offers" element={<LiveOffers />} />
             <Route path="/calendar" element={<OffersCalendar />} />
             <Route path="/offer-database" element={<OfferDatabase />} />
             <Route path="/offer-analysis" element={<OfferAnalysis />} />

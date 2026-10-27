@@ -27,6 +27,7 @@ from app.db.base import utcnow
 from app.models import Coupon, DataNote, ImportBatch, Offer, PromoEvent, Store
 from app.models.enums import DataSource, VerificationStatus
 from app.offers.classify import classify_offer
+from app.offers.status import set_status
 from app.services.audit import audit
 from app.services.parsing import (
     detect_currency,
@@ -158,6 +159,11 @@ def import_offers_workbook(db: Session, content: bytes, filename: str, *, dry_ru
         _import_codes(db, sheets[codes_sheet], codes_sheet, stores, report, dry_run)
     if discounts_sheet:
         _import_store_discounts(db, sheets[discounts_sheet], discounts_sheet, stores, report, dry_run)
+    if not dry_run:
+        from app.offers.status import sync_store_offers
+
+        for st in stores.values():
+            sync_store_offers(db, st, today=today)  # technical status from store evidence, if any
 
     if batch is not None:
         batch.status = "completed"
@@ -314,15 +320,20 @@ def _import_events(db, rows, sheet, stores, report: ImportReport, batch, dry_run
             issues.append("offer orders recorded but sales amount is zero")
 
         notes = strip_decoration(str(g("notes") or "")) or None
+        # Offer status is set only where the workbook gives evidence; dates alone never make an
+        # offer Live or Completed. Everything else is left "not set" for the user to confirm.
+        has_results = bool(offer_orders) or bool(sales)
         if notes and "not launched" in notes.lower():
-            status = "not_launched"
+            status, status_note = "cancelled", "Workbook note says it was not launched"
         elif not start and not offer_text:
-            status = "undocumented"
+            status, status_note = None, None
             issues.append("no dates or offer recorded (placeholder row)")
-        elif start and end:
-            status = "ended" if end < today else ("live" if start <= today else "planned")
+        elif end and end < today and has_results:
+            status, status_note = "completed", "Workbook records results for this offer"
+        elif start and start > today:
+            status, status_note = "in_progress", "Planned in the workbook"
         else:
-            status = "planned"
+            status, status_note = None, None
             if not start:
                 issues.append("missing start/end date")
 
@@ -367,7 +378,11 @@ def _import_events(db, rows, sheet, stores, report: ImportReport, batch, dry_run
         ev.offer_text = offer_text
         ev.offer_type = cls["offer_type"] if offer_text else None
         ev.start_date, ev.end_date = start, end
-        ev.status = status
+        if ev.status_source in (None, "import"):  # never overwrite a status a person or the store has set
+            if ev.id is None:
+                ev.status = None
+                db.flush()
+            set_status(db, ev, status, source="import", actor="workbook import", note=status_note)
         ev.channels = channels
         ev.display = display
         ev.activation = activation

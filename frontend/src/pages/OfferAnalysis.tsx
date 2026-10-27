@@ -3,11 +3,12 @@ import { api } from '../api'
 import { date, label, money, num, pct, signedPct } from '../format'
 import { NeedStore } from '../NeedStore'
 import type { StoreRow } from '../state'
-import { Card, Empty, ErrorBox, Loading, PageHead, Source, Status } from '../ui'
+import { Card, Empty, ErrorBox, Loading, PageHead, Source } from '../ui'
+import { OfferStatusBadge } from '../offerStatus'
 
 type Window = { orders_per_day: number | null; net_sales_per_day: number | null; aov: number | null; units_per_order: number | null; discount_rate: number | null; discounts: number }
 type Row = {
-  event_id: number; name: string; offer_text: string | null; offer_type: string | null; start: string; end: string; days: number; status: string
+  event_id: number; name: string; offer_text: string | null; offer_type: string | null; start: string; end: string; days: number; status: string | null
   coupon_codes: string[]; verification_status: string; data_issues: string[]
   documented: { offer_orders: number | null; total_orders: number | null; offer_sales: number | null; offer_order_share: number | null; source: string | null }
   measured: null | { during: Window; before: Window | null; change: Record<string, number | null> | null; offer_orders: number | null
@@ -56,7 +57,7 @@ function AnalysisFor({ store }: { store: StoreRow }) {
                 const m = e.measured!
                 return (
                   <tr key={e.event_id}>
-                    <td><strong>{e.name}</strong><div><small className="secondary">{e.offer_text}</small></div><Status value={e.status} /></td>
+                    <td><strong>{e.name}</strong><div><small className="secondary">{e.offer_text}</small></div><OfferStatusBadge status={e.status} /></td>
                     <td style={{ whiteSpace: 'nowrap' }}><small>{date(e.start)} → {date(e.end)}<br />{e.days} days</small></td>
                     <td className="num">{money(m.during.net_sales_per_day, cur)}<div><Delta v={m.change?.net_sales_per_day} /></div></td>
                     <td className="num">{num(m.during.orders_per_day, 1)}<div><Delta v={m.change?.orders_per_day} /></div></td>

@@ -112,6 +112,11 @@ def _run_sync_locked(db: Session, store_id: int, *, trigger: str, resources: lis
                     stats = _sync_orders(db, store, integ, connector, state, full)
                 elif resource == "discounts":
                     stats = _sync_discounts(db, store, connector)
+                    db.flush()
+                    _mark_discounts_synced(db, store.id)
+                    from app.offers.status import sync_store_offers
+
+                    stats["offers"] = sync_store_offers(db, store)
                 else:
                     continue
                 state.last_success_at = utcnow()
@@ -423,6 +428,12 @@ def reindex_all_customers(db: Session, store_id: int) -> None:
 
 
 # ---- discounts -----------------------------------------------------------------------------
+def _mark_discounts_synced(db: Session, store_id: int) -> None:
+    """Record discount-sync success before refreshing offers, so they can use it as evidence."""
+    st = get_state(db, store_id, "discounts")
+    st.last_success_at = utcnow()
+
+
 def _sync_discounts(db: Session, store: Store, connector) -> dict:
     now = utcnow()
     seen: set[str] = set()

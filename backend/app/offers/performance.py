@@ -138,7 +138,7 @@ def offer_performance(db: Session, store: Store, *, since: date | None = None, t
     today = today or date.today()
     q = select(PromoEvent).where(PromoEvent.store_id == store.id, PromoEvent.start_date.is_not(None),
                                  PromoEvent.start_date <= today,
-                                 PromoEvent.status.not_in(["cancelled", "not_launched", "undocumented"]))
+                                 (PromoEvent.status.is_(None)) | (PromoEvent.status != "cancelled"))
     if since:
         q = q.where(PromoEvent.end_date >= since)
     events = db.scalars(q.order_by(PromoEvent.start_date.desc())).all()
@@ -156,6 +156,7 @@ def offer_performance(db: Session, store: Store, *, since: date | None = None, t
                       if ev.offer_orders is not None and ev.total_orders else None, "source": ev.results_source}
         row = {"event_id": ev.id, "name": ev.name, "offer_text": ev.offer_text, "offer_type": ev.offer_type,
                "start": ev.start_date.isoformat(), "end": end.isoformat(), "days": span, "status": ev.status,
+               "technical_status": ev.technical_status,
                "coupon_codes": ev.coupon_codes, "threshold_amount": ev.threshold_amount,
                "verification_status": ev.verification_status, "documented": documented, "data_issues": ev.data_issues,
                "measured": None}
