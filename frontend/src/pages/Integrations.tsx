@@ -126,7 +126,7 @@ function IntegrationFor({ store }: { store: StoreRow }) {
   )
 }
 
-function ConnectForm({ store, onDone }: { store: StoreRow; onDone: () => void }) {
+export function ConnectForm({ store, onDone }: { store: StoreRow; onDone: () => void }) {
   const [f, setF] = useState({ shop_domain: store.shop_domain ?? '', auth_method: 'client_credentials', access_token: '', client_id: '', client_secret: '' })
   const m = useMutation({ mutationFn: () => api.put(`/stores/${store.id}/integration`, f), onSettled: onDone })
   return (

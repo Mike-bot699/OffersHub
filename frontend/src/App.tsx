@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { NavLink, Route, Routes } from 'react-router-dom'
+import { NavLink, Route, Routes, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './api'
 import { useApp } from './state'
@@ -17,6 +17,7 @@ import Opportunities from './pages/Opportunities'
 import Experiments from './pages/Experiments'
 import Integrations from './pages/Integrations'
 import Settings from './pages/Settings'
+import Connect from './pages/Connect'
 
 // Main work: offers, discounts and order value. Secondary: data sources and set-up.
 const NAV_MAIN = [
@@ -32,6 +33,7 @@ const NAV_MAIN = [
   ['/simulator', 'Simulator'],
 ] as const
 const NAV_DATA = [
+  ['/connect', 'Store connection'],
   ['/products', 'Products'],
   ['/analytics', 'Store analytics'],
   ['/stores', 'Stores'],
@@ -43,6 +45,7 @@ export default function App() {
   const { stores, storeId, days, includeDemo, set, store } = useApp()
   const auth = useQuery({ queryKey: ['auth'], queryFn: () => api.get<{ mode: string; authenticated: boolean }>('/auth/status') })
   const [locked, setLocked] = useState(false)
+  const navigate = useNavigate()
   useEffect(() => {
     const h = () => setLocked(true)
     window.addEventListener('egi:unauthorized', h)
@@ -85,6 +88,7 @@ export default function App() {
             <span className="secondary">Show demo data</span>
           </label>
           <span className="spacer" />
+          <button onClick={() => navigate('/connect')} title="Add a store and enter its Shopify API credentials">⚙ Connect store</button>
           {store?.is_demo && <DemoBadge />}
         </div>
         {import.meta.env.VITE_PREVIEW === '1' && (
@@ -118,6 +122,7 @@ export default function App() {
             <Route path="/products" element={<Products />} />
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/stores" element={<Stores />} />
+            <Route path="/connect" element={<Connect />} />
             <Route path="/integrations" element={<Integrations />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<p>Page not found.</p>} />

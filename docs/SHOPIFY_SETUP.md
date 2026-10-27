@@ -16,7 +16,7 @@ Stores created after 1 January 2026 can no longer create legacy custom apps in t
 1. In the Shopify **Dev Dashboard**, create an app in the **same organisation** as the store(s).
 2. Configure Admin API access scopes (below) and install the app on each store.
 3. Copy the app's **Client ID** and **Client secret**.
-4. In the application: Integrations → choose the store → *Dev Dashboard app* → enter the
+4. In the application: *Store connection* (also the *Connect store* button at the top) → *Connect* → *Dev Dashboard app* → enter the
    `*.myshopify.com` domain, client ID and secret → *Connect & verify*.
 
 The backend exchanges the credentials for a 24-hour token (`POST /admin/oauth/access_token`,
