@@ -1,1 +1,1 @@
-Frontend for Ecommerce Growth Intelligence — see the repository README.
+Frontend for OffersHub — see the repository README.

@@ -1,7 +1,7 @@
 [project]
 name = "egi-backend"
 version = "0.1.0"
-description = "Ecommerce Growth Intelligence API"
+description = "OffersHub API"
 requires-python = ">=3.13"
 dependencies = [
     "alembic>=1.20.1",

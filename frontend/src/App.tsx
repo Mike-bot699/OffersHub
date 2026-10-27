@@ -54,7 +54,7 @@ export default function App() {
     <div className="app">
       <aside className="sidebar">
         <div className="brand">
-          Growth Intelligence
+          OffersHub
           <small className="muted">Offers, discounts & AOV</small>
         </div>
         <nav className="nav">
@@ -142,7 +142,7 @@ function Login({ onDone }: { onDone: () => void }) {
           onDone()
         } catch (x) { setErr(x) }
       }}>
-        <h1 style={{ marginBottom: 12 }}>Growth Intelligence</h1>
+        <h1 style={{ marginBottom: 12 }}>OffersHub</h1>
         <label className="field">Password<input type="password" autoFocus value={pw} onChange={(e) => setPw(e.target.value)} /></label>
         <div className="mt"><button className="primary" type="submit">Sign in</button></div>
         <div className="mt"><ErrorBox error={err} /></div>

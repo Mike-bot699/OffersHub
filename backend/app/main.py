@@ -26,7 +26,7 @@ async def lifespan(_app: FastAPI):
         from app.services import scheduler
 
         scheduler.start()
-    log.info("Ecommerce Growth Intelligence started (env=%s, db=%s)", s.env, "sqlite" if s.is_sqlite else "postgres")
+    log.info("OffersHub started (env=%s, db=%s)", s.env, "sqlite" if s.is_sqlite else "postgres")
     yield
     if s.scheduler_enabled and s.env != "test":
         from app.services import scheduler
@@ -36,7 +36,7 @@ async def lifespan(_app: FastAPI):
 
 def create_app() -> FastAPI:
     s = get_settings()
-    app = FastAPI(title="Ecommerce Growth Intelligence", version=routes_admin.VERSION, lifespan=lifespan,
+    app = FastAPI(title="OffersHub", version=routes_admin.VERSION, lifespan=lifespan,
                   docs_url="/api/docs", openapi_url="/api/openapi.json")
     app.add_middleware(CORSMiddleware, allow_origins=s.cors_origins, allow_credentials=True,
                        allow_methods=["*"], allow_headers=["*"])

@@ -1,4 +1,4 @@
-# Ecommerce Growth Intelligence
+# OffersHub
 
 A private decision-support application for ecommerce stores, focused on **offers, discounts and order value (AOV)**. It uses real store data to find,
 quantify, prioritise and validate growth opportunities across products, baskets, offers and stores,
