@@ -11,6 +11,7 @@ There is no public documentation. Orders and discount codes have no confirmed en
 so this client does not pretend to provide them: `capabilities()` says what it can read.
 """
 
+import re
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import date
@@ -49,7 +50,7 @@ def _num(v: Any) -> float | None:
     if v is None or v == "":
         return None
     try:
-        return float(str(v).replace(",", ""))
+        return float(re.sub(r"[^0-9.\-]", "", str(v)) or "x")
     except ValueError:
         return None
 
@@ -133,11 +134,12 @@ class ElizetaClient:
             title = str(_first(r, "title", "name", "product_title") or "").strip()
             if not title:
                 continue
-            units = _num(_first(r, "sales", "units", "quantity", "qty")) or 0
+            # Same field order as Email Maker (lib/catalog-match.ts): the live report carries units in `sold`.
+            units = _num(_first(r, "sold", "sales", "units", "quantity", "qty")) or 0
             out.append(SalesRow(
                 title=title, units=int(units),
-                revenue=_num(_first(r, "revenue", "total", "amount", "sales_amount", "totalSales")),
-                avg_price=_num(_first(r, "avgPrice", "avg_price", "price")),
+                revenue=_num(_first(r, "revenue", "total")),
+                avg_price=_num(_first(r, "avgPrice", "price", "unit_price", "avg_price")),
                 external_id=str(_first(r, "product_id", "productId", "id") or "") or None,
                 sku=str(_first(r, "sku", "SKU") or "") or None,
             ))

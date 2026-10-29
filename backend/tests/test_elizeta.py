@@ -5,6 +5,8 @@ Response shapes follow what the team's Email Maker reads from Eli Z (lib/elizeta
 `title`, `sales` (units) and `avgPrice`. Real responses were not available here.
 """
 
+from datetime import date
+
 import httpx
 import pytest
 from fastapi.testclient import TestClient
@@ -80,6 +82,7 @@ def test_sync_filters_inactive_on_every_page_and_matches_sales(db, store, platfo
     rows = {r.title: r for r in db.scalars(select(SalesReportRow))}
     assert rows["TOY  1"].match_method == "title" and rows["renamed"].match_method == "sku"
     assert rows["Unknown thing"].product_id is None
+    assert rows["Toy 0"].units == 10
     # orders and discount codes are declared unavailable, not silently empty
     assert any("orders endpoint" in w for w in job.warnings)
     sales_req = next(r for r in platform["seen"] if r.url.path == "/api/v1/sales-reports")
@@ -135,3 +138,12 @@ def test_platform_generated_secret_is_accepted(monkeypatch):
         assert not security.encryption_available()
     finally:
         get_settings.cache_clear()
+
+
+def test_units_read_from_sold_field():
+    """The live Eli Z report puts units in `sold` (as read by Email Maker); missing it ranked nothing."""
+    c = ez.ElizetaClient("26", KEY, http=httpx.Client(transport=httpx.MockTransport(
+        lambda r: httpx.Response(200, json={"sold": [{"title": "Robot", "sold": 12, "avgPrice": "$49.90"},
+                                                     {"title": "Gift", "sold": 3, "avgPrice": 0}]}))))
+    rows = {r.title: r for r in c.fetch_sales(date(2026, 10, 1), date(2026, 10, 30))}
+    assert rows["Robot"].units == 12 and rows["Robot"].avg_price == 49.9 and rows["Gift"].units == 3
