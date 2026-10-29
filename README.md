@@ -44,7 +44,11 @@ only the backend — it serves the built UI from `frontend/dist`.
    excluded from real totals, and cannot be connected to a platform.
 2. **Import your history**: Offers → *Import workbook*. Upload the offers-monitoring workbook (`.xlsx`)
    or its Events sheet (`.csv`). Preview first; every questionable row is listed with the reason.
-3. **Connect a store**: *Store connection* (or the *Connect store* button at the top) → *Add store* → enter the shop domain and credentials
+3. **Connect a store**: Settings → Stores → *Add store*, then enter its **Eli Z shop id** and **Eli Z API key**
+   (encrypted at rest, shown only as `••••last4`) → *Test connection* → *Sync products & sales*.
+   Eli Z currently provides the catalog and product sales; orders and discount codes have no confirmed
+   endpoint yet, so order KPIs say "Needs order data" instead of showing zeros. A Shopify connector also exists
+   (hidden page `/integrations`) and enter the shop domain and credentials
    ([docs/SHOPIFY_SETUP.md](docs/SHOPIFY_SETUP.md)). The connection is verified against the live API
    before it is marked connected; then *Sync now*.
 4. **Add what Shopify cannot provide**: Settings → *Unit costs CSV* and *Daily traffic CSV*;
@@ -72,7 +76,7 @@ All configuration is environment-based (`backend/.env` or real environment varia
 ## Tests
 
 ```bash
-cd backend && uv run pytest        # 98 tests: metrics, simulations, parsing, imports, offer status, Shopify client/sync
+cd backend && uv run pytest        # 108 tests: metrics, simulations, parsing, imports, offer status, offers plan, Eli Z, Shopify client/sync
                                    # (against an emulated API), analytics, engine, experiments, approvals, HTTP API
 uv run ruff check app tests
 cd ../frontend && npm run build    # type-check + production build

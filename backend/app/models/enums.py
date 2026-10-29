@@ -5,6 +5,7 @@ from enum import StrEnum
 
 class DataSource(StrEnum):
     SHOPIFY = "shopify"                     # pulled from a connected Shopify store
+    ELIZETA = "elizeta"                     # pulled from the Eli Z platform (catalog, sales reports)
     SPREADSHEET_IMPORT = "spreadsheet_import"  # historical offers-monitoring workbook
     CSV_IMPORT = "csv_import"               # user-supplied CSV (costs, traffic, ...)
     MANUAL = "manual"                       # typed into this application

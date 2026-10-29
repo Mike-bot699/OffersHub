@@ -36,3 +36,17 @@
 2. Import the full `.xlsx` workbook (preview first) and costs for that store.
 3. Review the first recommendations together and tune detector thresholds to the business.
 4. Then: a traffic connector (GA4 or ShopifyQL), and Phase 6 executors on a development store.
+
+
+## Eli Z platform (current data source)
+
+- Implemented: per-store shop id + encrypted API key (Settings → Stores), connection test, sync of the active
+  catalog (`/api/v1/products`, cursor pagination, status filter re-applied on every page) and the last 30 days of
+  product sales (`/api/v1/sales-reports`), product performance tags (Best Seller / Top Seller / Popular / Free) with
+  the same rule as Email Maker plus a configurable minimum of products with sales.
+- Not available yet: orders and discount codes. Eli Z has no public documentation and no confirmed endpoint for them;
+  the Overview KPIs (AOV with/without discount, orders with a code, discount rate, top codes), late redemptions and the
+  coupon technical status need them. Add `fetch_orders` / `fetch_discounts` to `app/connectors/elizeta.py` once the
+  endpoints are known.
+- The Eli Z host could not be reached from the environment where this was built; the client is tested against an
+  emulated platform shaped like the responses Email Maker reads.

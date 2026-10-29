@@ -7,6 +7,7 @@ from app.models.commerce import (
     OrderLine,
     PriceHistory,
     Product,
+    SalesReportRow,
     TrafficDaily,
     Variant,
 )
@@ -42,6 +43,7 @@ __all__ = [
     "Product",
     "PromoEvent",
     "Recommendation",
+    "SalesReportRow",
     "Simulation",
     "Store",
     "StoreObjective",

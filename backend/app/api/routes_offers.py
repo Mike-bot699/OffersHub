@@ -43,8 +43,15 @@ class EventIn(BaseModel):
     offer_type: OfferType | None = None
     start_date: date | None = None
     end_date: date | None = None
-    status: str = Field(default="in_progress", pattern=EVENT_STATUSES)
+    # Not given: Scheduled when the start date is in the future, otherwise In Progress.
+    status: str | None = Field(default=None, pattern=EVENT_STATUSES)
     status_note: str | None = None
+    description: str | None = None
+    level: str | None = Field(default=None, pattern="^(store|collection|product)$")
+    level_targets: list[str] | None = None
+    landing_page: str | None = Field(default=None, max_length=1000)
+    articles: str | None = None
+    banner_message: str | None = None
     objective: str | None = None
     target_audience: str | None = None
     channels: list[str] = []
@@ -73,6 +80,12 @@ class EventPatch(BaseModel):
     start_date: date | None = None
     end_date: date | None = None
     sync_status_from_store: bool | None = None
+    description: str | None = None
+    level: str | None = Field(default=None, pattern="^(store|collection|product)$")
+    level_targets: list[str] | None = None
+    landing_page: str | None = Field(default=None, max_length=1000)
+    articles: str | None = None
+    banner_message: str | None = None
     objective: str | None = None
     target_audience: str | None = None
     channels: list[str] | None = None
@@ -133,7 +146,13 @@ def update_offer(offer_id: int, body: OfferIn, db: Session = DB):
 
 
 def _event_out(db: Session, e: PromoEvent, code: str, cur: str, demo: bool, today: date | None = None) -> dict:
-    return to_dict(e) | describe_status(e, today) | {
+    today = today or date.today()
+    ended = bool(e.end_date and e.end_date < today) or e.status in ("completed", "cancelled")
+    return to_dict(e, exclude={"banner_content"}) | describe_status(e, today) | {
+        "has_banner": bool(e.banner_content),
+        "duration_days": (e.end_date - e.start_date).days + 1 if e.start_date and e.end_date else None,
+        # The offer is over but its code still works in the store (late viewers, e.g. a late email open).
+        "code_active_after_end": ended and e.technical_status == TechnicalStatus.ACTIVE,
         "store_code": code, "currency": cur, "is_demo": demo,
         "offer_order_share": (e.offer_orders / e.total_orders) if e.offer_orders is not None and e.total_orders else None,
         "technical_verified": e.technical_status != "unknown",
@@ -162,18 +181,28 @@ def offer_statuses():
 
 @router.get("/events")
 def list_events(store_id: int | None = None, status: str | None = None, start: date | None = None,
-                end: date | None = None, include_demo: bool = False, needs_review: bool = False, db: Session = DB):
+                end: date | None = None, include_demo: bool = False, needs_review: bool = False,
+                when: str | None = None, db: Session = DB):
+    """when=plan: offers whose dates are running or still ahead; when=expired: offers whose end date has passed."""
     q = select(PromoEvent, Store.code, Store.currency, Store.is_demo).join(Store, Store.id == PromoEvent.store_id)
     if store_id:
         q = q.where(PromoEvent.store_id == store_id)
     elif not include_demo:
         q = q.where(Store.is_demo.is_(False))
     q = _status_filter(q, status)
+    today = date.today()
+    if when == "plan":
+        q = q.where((PromoEvent.end_date.is_(None) & (PromoEvent.start_date.is_(None) | (PromoEvent.start_date >= today)))
+                    | (PromoEvent.end_date >= today))
+    elif when == "expired":
+        q = q.where(PromoEvent.end_date < today)
+    elif when:
+        raise ValidationError("when must be 'plan' or 'expired'.")
     if start:
         q = q.where((PromoEvent.end_date.is_(None)) | (PromoEvent.end_date >= start))
     if end:
         q = q.where((PromoEvent.start_date.is_(None)) | (PromoEvent.start_date <= end))
-    q = q.order_by(PromoEvent.start_date.desc().nulls_last())
+    q = q.order_by(PromoEvent.start_date.asc().nulls_last() if when == "plan" else PromoEvent.start_date.desc().nulls_last())
     rows = [_event_out(db, e, code, cur, demo) for e, code, cur, demo in db.execute(q)]
     return [r for r in rows if r["needs_review"]] if needs_review else rows
 
@@ -215,11 +244,13 @@ def create_event(body: EventIn, db: Session = DB):
     _check_dates(body.start_date, body.end_date)
     data = body.model_dump(exclude={"status", "status_note"})
     data["coupon_codes"] = [c.strip().upper() for c in data["coupon_codes"] if c.strip()]
+    data["level_targets"] = data.get("level_targets") or []
     e = PromoEvent(**data, status=None, source=DataSource.MANUAL,
                    results_source=DataSource.MANUAL if body.offer_orders is not None else None)
     db.add(e)
     db.flush()
-    set_status(db, e, body.status, source="manual", note=body.status_note or "Created")
+    status = body.status or ("scheduled" if body.start_date and body.start_date > date.today() else "in_progress")
+    set_status(db, e, status, source="manual", note=body.status_note or "Created")
     refresh_status(db, e, store)
     audit(db, "event.created", "promo_event", e.id, store_id=e.store_id)
     db.commit()
@@ -359,6 +390,59 @@ def offer_performance_route(store_id: int, days: int = 365, db: Session = DB):
     from datetime import timedelta
 
     return offer_performance(db, get_store(db, store_id), since=date.today() - timedelta(days=days))
+
+
+MAX_BANNER_BYTES = 3_000_000
+
+
+class BannerIn(BaseModel):
+    kind: str = Field(pattern="^(html|image)$")
+    content: str = Field(min_length=1)
+    filename: str | None = Field(default=None, max_length=255)
+
+
+@router.get("/events/{event_id}/banner")
+def get_banner(event_id: int, db: Session = DB):
+    """The banner design. HTML is returned as data; the UI renders it in a sandboxed frame
+    with scripts disabled, so a design file can never run code in the application."""
+    e = _event(db, event_id)
+    return {"kind": e.banner_kind, "content": e.banner_content, "filename": e.banner_filename}
+
+
+@router.put("/events/{event_id}/banner")
+def put_banner(event_id: int, body: BannerIn, db: Session = DB):
+    e = _event(db, event_id)
+    if len(body.content.encode()) > MAX_BANNER_BYTES:
+        raise ValidationError("The banner file is larger than 3 MB.")
+    if body.kind == "image" and not body.content.startswith("data:image/"):
+        raise ValidationError("An image banner must be an image file.")
+    e.banner_kind, e.banner_content, e.banner_filename = body.kind, body.content, body.filename
+    audit(db, "event.banner_set", "promo_event", e.id, store_id=e.store_id, details={"kind": body.kind, "filename": body.filename})
+    db.commit()
+    return {"kind": e.banner_kind, "filename": e.banner_filename}
+
+
+@router.delete("/events/{event_id}/banner")
+def delete_banner(event_id: int, db: Session = DB):
+    e = _event(db, event_id)
+    e.banner_kind = e.banner_content = e.banner_filename = None
+    db.commit()
+    return {"deleted": True}
+
+
+@router.get("/overview")
+def overview(store_id: int | None = None, include_demo: bool = False, period: tuple[date, date] = Period,
+             db: Session = DB):
+    """Offers & discounts overview. One store: KPIs from its orders. All stores: one row per store,
+    each in its own currency (amounts are never added across currencies)."""
+    from app.offers.overview import store_overview
+
+    if store_id:
+        return store_overview(db, get_store(db, store_id), *period)
+    q = select(Store).where(Store.status == "active").order_by(Store.is_demo, Store.code)
+    if not include_demo:
+        q = q.where(Store.is_demo.is_(False))
+    return {"stores": [store_overview(db, s, *period) for s in db.scalars(q)]}
 
 
 def _event(db: Session, event_id: int) -> PromoEvent:

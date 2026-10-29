@@ -17,6 +17,8 @@ class Integration(TimestampMixin, Base):
     auth_method: Mapped[str | None] = mapped_column(String(32))  # admin_token | client_credentials
     status: Mapped[str] = mapped_column(String(24), default="not_configured")
     shop_domain: Mapped[str | None] = mapped_column(String(255))
+    # Numeric shop id on a platform that serves several stores (Eli Z).
+    external_shop_id: Mapped[str | None] = mapped_column(String(32))
     api_version: Mapped[str | None] = mapped_column(String(16))
     # Encrypted JSON blob (Fernet). Never serialised to API responses.
     credentials_encrypted: Mapped[str | None] = mapped_column(Text)

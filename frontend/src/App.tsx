@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react'
-import { NavLink, Route, Routes, useNavigate } from 'react-router-dom'
+import { Navigate, NavLink, Route, Routes } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './api'
 import { useApp } from './state'
 import { DemoBadge, ErrorBox, Seg } from './ui'
 import Overview from './pages/Overview'
 import Stores from './pages/Stores'
-import Products from './pages/Products'
+import Products from './pages/Catalog'
+import ProductAnalytics from './pages/Products'
 import Basket from './pages/Basket'
 import Discounts from './pages/Discounts'
-import { LiveOffers, OfferDatabase, OffersCalendar } from './pages/Offers'
+import { OffersDB, OffersPlan } from './pages/Offers'
 import OfferAnalysis from './pages/OfferAnalysis'
 import Simulator from './pages/Simulator'
 import Analytics from './pages/Analytics'
@@ -22,30 +23,23 @@ import Connect from './pages/Connect'
 // Main work: offers, discounts and order value. Secondary: data sources and set-up.
 const NAV_MAIN = [
   ['/', 'Overview'],
-  ['/live-offers', 'Live offers'],
-  ['/basket', 'AOV & basket'],
-  ['/discounts', 'Discounts'],
-  ['/calendar', 'Offer planning'],
-  ['/offer-database', 'Offer database'],
-  ['/offer-analysis', 'Offer analysis'],
+  ['/offers-plan', 'Offers Plan'],
+  ['/offers-db', 'Offers DB'],
+  ['/analysis', 'Analysis'],
+  ['/products', 'Products'],
+  ['/settings', 'Settings'],
+] as const
+// Still being shaped: kept apart so the main work stays focused.
+const NAV_BETA = [
   ['/opportunities', 'Opportunities'],
   ['/experiments', 'Experiments'],
   ['/simulator', 'Simulator'],
-] as const
-const NAV_DATA = [
-  ['/connect', 'Store connection'],
-  ['/products', 'Products'],
-  ['/analytics', 'Store analytics'],
-  ['/stores', 'Stores'],
-  ['/integrations', 'Integrations'],
-  ['/settings', 'Settings'],
 ] as const
 
 export default function App() {
   const { stores, storeId, days, includeDemo, set, store } = useApp()
   const auth = useQuery({ queryKey: ['auth'], queryFn: () => api.get<{ mode: string; authenticated: boolean }>('/auth/status') })
   const [locked, setLocked] = useState(false)
-  const navigate = useNavigate()
   useEffect(() => {
     const h = () => setLocked(true)
     window.addEventListener('egi:unauthorized', h)
@@ -64,9 +58,9 @@ export default function App() {
           {NAV_MAIN.map(([to, text]) => (
             <NavLink key={to} to={to} end={to === '/'}>{text}</NavLink>
           ))}
-          <div className="nav-group">Data & setup</div>
-          {NAV_DATA.map(([to, text]) => (
-            <NavLink key={to} to={to} className="nav-secondary">{text}</NavLink>
+          <div className="nav-group">Beta</div>
+          {NAV_BETA.map(([to, text]) => (
+            <NavLink key={to} to={to} className="nav-secondary">{text} <span className="badge beta">BETA</span></NavLink>
           ))}
         </nav>
       </aside>
@@ -74,6 +68,7 @@ export default function App() {
         <div className="topbar">
           <label className="row" style={{ gap: 6 }}>
             <span className="muted">Store</span>
+            {store?.logo ? <img src={store.logo} alt="" width={22} height={22} style={{ borderRadius: 5 }} /> : null}
             <select value={storeId ?? ''} onChange={(e) => set({ storeId: e.target.value ? Number(e.target.value) : null })}>
               <option value="">All stores (portfolio)</option>
               {stores.map((s) => (
@@ -88,7 +83,6 @@ export default function App() {
             <span className="secondary">Show demo data</span>
           </label>
           <span className="spacer" />
-          <button onClick={() => navigate('/connect')} title="Add a store and enter its Shopify API credentials">⚙ Connect store</button>
           {store?.is_demo && <DemoBadge />}
         </div>
         {import.meta.env.VITE_PREVIEW === '1' && (
@@ -112,10 +106,14 @@ export default function App() {
             <Route path="/" element={<Overview />} />
             <Route path="/basket" element={<Basket />} />
             <Route path="/discounts" element={<Discounts />} />
-            <Route path="/live-offers" element={<LiveOffers />} />
-            <Route path="/calendar" element={<OffersCalendar />} />
-            <Route path="/offer-database" element={<OfferDatabase />} />
-            <Route path="/offer-analysis" element={<OfferAnalysis />} />
+            <Route path="/offers-plan" element={<OffersPlan />} />
+            <Route path="/offers-db" element={<OffersDB />} />
+            <Route path="/analysis" element={<OfferAnalysis />} />
+            <Route path="/live-offers" element={<Navigate to="/offers-plan" replace />} />
+            <Route path="/calendar" element={<Navigate to="/offers-plan" replace />} />
+            <Route path="/offer-database" element={<Navigate to="/offers-db" replace />} />
+            <Route path="/offer-analysis" element={<Navigate to="/analysis" replace />} />
+            <Route path="/product-analytics" element={<ProductAnalytics />} />
             <Route path="/opportunities" element={<Opportunities />} />
             <Route path="/experiments" element={<Experiments />} />
             <Route path="/simulator" element={<Simulator />} />

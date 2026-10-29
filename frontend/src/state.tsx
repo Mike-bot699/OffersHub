@@ -9,6 +9,8 @@ export type StoreRow = {
   currency: string
   timezone: string
   is_demo: boolean
+  logo?: string | null
+  product_host?: string | null
   status: string
   platform: string
   shop_domain: string | null

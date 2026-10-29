@@ -47,7 +47,14 @@ def tick() -> None:
     for store_id in due_store_ids():
         try:
             with session_scope() as db:
-                job = run_sync(db, store_id, trigger="scheduled")
+                ez = db.scalar(select(Integration).where(Integration.store_id == store_id,
+                                                         Integration.provider == "elizeta"))
+                if ez is not None and ez.credentials_encrypted:
+                    from app.services import elizeta
+
+                    job = elizeta.sync(db, db.get(Store, store_id), trigger="scheduled")
+                else:
+                    job = run_sync(db, store_id, trigger="scheduled")
                 log.info("Scheduled sync store=%s status=%s", store_id, job.status)
         except ConflictError:
             log.info("Store %s already syncing; skipped this tick", store_id)

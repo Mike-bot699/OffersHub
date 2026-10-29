@@ -479,12 +479,14 @@ def upsert_coupon(db: Session, store_id: int, dto: CouponDTO, source: str, now: 
 # ---- freshness -----------------------------------------------------------------------------
 def freshness(db: Session, store: Store) -> dict:
     """Describe how current each resource is. `stale` = older than 2× the sync interval."""
-    integ = db.scalar(select(Integration).where(Integration.store_id == store.id))
+    integ = db.scalar(select(Integration).where(Integration.store_id == store.id)
+                      .order_by((Integration.provider == "elizeta").desc()).limit(1))
     states = {s.resource: s for s in db.scalars(select(SyncState).where(SyncState.store_id == store.id))}
     interval = timedelta(minutes=(integ.sync_interval_minutes if integ else 360))
     now = utcnow()
     out = {}
-    for r in RESOURCES:
+    resources = ("products", "sales") if integ is not None and integ.provider == "elizeta" else RESOURCES
+    for r in resources:
         s = states.get(r)
         last = _aware(s.last_success_at) if s else None
         if store.is_demo:

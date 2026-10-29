@@ -6,7 +6,7 @@ import { NeedStore } from '../NeedStore'
 import { useApp, type StoreRow } from '../state'
 import { Link } from 'react-router-dom'
 import { Bars, TrendLine } from '../charts'
-import type { DiscountAnalysis } from './Overview'
+import type { DiscountAnalysis } from '../types'
 import { Card, ErrorBox, Field, Kpi, Loading, PageHead, Source } from '../ui'
 
 export type Basket = {

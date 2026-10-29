@@ -3,7 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import { dateTime, label, num } from '../format'
 import { useApp } from '../state'
-import { Card, ErrorBox, PageHead, Status } from '../ui'
+import { Card, ErrorBox, PageHead, Status, Tabs } from '../ui'
+import { StoresSettings } from './StoreSettings'
 
 type CsvReport = { kind: string; dry_run: boolean; rows_total: number; rows_imported: number; rows_skipped: number; issues: { row: number; issue: string }[] }
 
@@ -14,10 +15,14 @@ export default function Settings() {
   const demoDel = useMutation({ mutationFn: () => api.del('/demo'), onSuccess: () => qc.invalidateQueries() })
   const backups = useQuery({ queryKey: ['backups'], queryFn: () => api.get<{ file: string; bytes: number; created: string }[]>('/admin/backups'), retry: false })
   const backup = useMutation({ mutationFn: () => api.post('/admin/backups'), onSuccess: () => backups.refetch() })
+  const [tab, setTab] = useState('stores')
   const imports = useQuery({ queryKey: ['imports'], queryFn: () => api.get<{ id: number; kind: string; filename: string; status: string; rows_imported: number; rows_skipped: number; warning_count: number; created_at: string }[]>('/imports') })
   return (
     <>
-      <PageHead title="Settings" desc="Data imports, cost assumptions, backups and application configuration. Store-specific objectives and commercial settings live under Stores." />
+      <PageHead title="Settings" desc="Stores and their Eli Z connection, data imports, backups and application configuration." />
+      <Tabs value={tab} onChange={setTab} tabs={[{ id: 'stores', label: 'Stores' }, { id: 'data', label: 'Data & application' }]} />
+      {tab === 'stores' && <StoresSettings />}
+      {tab === 'data' && <>
       <div className="grid g2">
         <Card title="Data imports for the selected store">
           {!store ? <small>Select a store in the top bar to import costs or traffic for it.</small> : store.is_demo ? <small>Imports into the demo store are disabled.</small> : (
@@ -59,6 +64,7 @@ export default function Settings() {
         <table><thead><tr><th>When</th><th>Kind</th><th>File</th><th>Status</th><th className="num">Imported</th><th className="num">Skipped</th><th className="num">Warnings</th></tr></thead>
           <tbody>{imports.data?.map((b) => <tr key={b.id}><td><small>{dateTime(b.created_at)}</small></td><td>{label(b.kind)}</td><td>{b.filename}</td><td><Status value={b.status === 'completed' ? 'success' : b.status} text={b.status} /></td><td className="num">{b.rows_imported}</td><td className="num">{b.rows_skipped}</td><td className="num">{b.warning_count}</td></tr>)}</tbody></table>
       </Card>
+      </>}
     </>
   )
 }

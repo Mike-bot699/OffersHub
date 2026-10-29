@@ -154,12 +154,14 @@ def offer_performance(db: Session, store: Store, *, since: date | None = None, t
         documented = {"offer_orders": ev.offer_orders, "total_orders": ev.total_orders, "offer_sales": ev.offer_sales,
                       "offer_order_share": _r(M.safe_div(ev.offer_orders, ev.total_orders), 4)
                       if ev.offer_orders is not None and ev.total_orders else None, "source": ev.results_source}
-        row = {"event_id": ev.id, "name": ev.name, "offer_text": ev.offer_text, "offer_type": ev.offer_type,
+        planned_days = (ev.end_date - ev.start_date).days + 1 if ev.end_date else None
+        row = {"event_id": ev.id, "name": ev.name, "store_code": store.code, "duration_days": planned_days,
+               "level": ev.level, "level_targets": ev.level_targets, "offer_text": ev.offer_text, "offer_type": ev.offer_type,
                "start": ev.start_date.isoformat(), "end": end.isoformat(), "days": span, "status": ev.status,
                "technical_status": ev.technical_status,
                "coupon_codes": ev.coupon_codes, "threshold_amount": ev.threshold_amount,
                "verification_status": ev.verification_status, "documented": documented, "data_issues": ev.data_issues,
-               "measured": None}
+               "measured": None, "late": None}
         if during:
             codes = {c.upper() for c in ev.coupon_codes or []}
             offer_orders = [o for o in during if codes & set(o.codes)] if codes else []
@@ -177,6 +179,18 @@ def offer_performance(db: Session, store: Store, *, since: date | None = None, t
                 if codes else None,
                 "evidence": "weak (before/after)",
             }
+        # Late redemptions: the code used after the offer ended (late email opens, saved codes).
+        # Kept apart from the offer's own results so they do not inflate it.
+        codes = {c.upper() for c in ev.coupon_codes or []}
+        if codes and ev.end_date and ev.end_date < today:
+            after = [o for o in load_dataset(db, store, ev.end_date + timedelta(days=1), today).orders
+                     if codes & set(o.codes)]
+            row["late"] = {"orders": len(after), "discounts": round(sum(o.discounts for o in after), 2),
+                           "net_sales": round(sum(o.net for o in after), 2),
+                           "last_order": max((o.local_date for o in after), default=None),
+                           "code_still_active": ev.technical_status == "active"}
+            if row["late"]["last_order"]:
+                row["late"]["last_order"] = row["late"]["last_order"].isoformat()
         rows.append(row)
 
     by_type: dict[str, list[dict]] = defaultdict(list)

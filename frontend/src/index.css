@@ -191,3 +191,20 @@ ul.tight li { margin: 2px 0; }
 .history li { border-left: 2px solid var(--border-strong); padding-left: 8px; }
 .warning-ink { color: var(--warning-ink); }
 .critical-ink { color: var(--critical-ink); }
+
+/* Offers Plan / catalog */
+.plan-table td { vertical-align: top; }
+.plan-table td.clip { max-width: 220px; min-width: 140px; }
+.plan-table td.clip > small { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.banner-thumb { padding: 2px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); cursor: zoom-in; display: block; }
+.banner-thumb:hover { border-color: var(--accent); }
+.badge.beta { font-size: 9.5px; padding: 0 5px; color: var(--demo); border-color: color-mix(in srgb, var(--demo) 35%, var(--border)); margin-left: 4px; }
+.badge.tag-best_seller { color: #a33a00; background: #fff1e8; border-color: #f5c3a3; font-weight: 600; }
+.badge.tag-top_seller { color: #7a5a00; background: #fff8e1; border-color: #f0d18a; font-weight: 600; }
+.badge.tag-popular { color: var(--accent-ink); background: var(--accent-soft); border-color: #b9d1f1; }
+.badge.tag-free { color: var(--good-ink); background: #eef8ee; border-color: color-mix(in srgb, var(--good) 40%, var(--border)); }
+.badge.tag-manual { color: var(--demo); background: var(--demo-soft); border-color: color-mix(in srgb, var(--demo) 35%, var(--border)); }
+.tag-x { border: 0; background: none; padding: 0 0 0 4px; cursor: pointer; color: inherit; font-size: 12px; line-height: 1; }
+.tag-add { font-size: 11.5px; padding: 1px 6px; }
+.store-letter { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--border); font-weight: 700; }
+.store-letter.big { width: 40px; height: 40px; border-radius: 8px; font-size: 18px; }

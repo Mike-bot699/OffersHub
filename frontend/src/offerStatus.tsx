@@ -5,6 +5,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from './api'
 import { date, label, money, num, pct } from './format'
 import { DemoBadge, ErrorBox, useSort } from './ui'
+import { BannerThumb } from './banner'
 
 export type OfferStatus = 'in_progress' | 'scheduled' | 'live' | 'paused' | 'completed' | 'cancelled'
 export type HistoryEntry = { at: string; from: string | null; to: string | null; source: string; actor: string; note: string | null }
@@ -20,6 +21,10 @@ export type Ev = {
   status_history: HistoryEntry[]; review_prompts: string[]; conflict_open: boolean; needs_review: boolean
   status_conflict: string | null; technical_status: string; technical_evidence: string | null; technical_checked_at: string | null
   technical_verified: boolean; shopify_discount_id: string | null; sync_status_from_store: boolean
+  description: string | null; level: 'store' | 'collection' | 'product' | null; level_targets: string[]
+  landing_page: string | null; articles: string | null; banner_message: string | null
+  has_banner: boolean; banner_kind: string | null; banner_filename: string | null
+  duration_days: number | null; code_active_after_end: boolean
 }
 
 export const OFFER_STATUSES: { value: OfferStatus; label: string; icon: string; hint: string }[] = [
@@ -219,5 +224,91 @@ export function StatusPanel({ ev, onChanged }: { ev: Ev; onChanged: (e: Ev) => v
         </ol>
       )}
     </div>
+  )
+}
+
+const DISPLAY_TEXT: Record<string, string> = { full_site: 'Full-Displayed', email_only: 'Email-Only', hidden: 'Hidden' }
+
+export function LevelCell({ e }: { e: Pick<Ev, 'level' | 'level_targets'> }) {
+  if (!e.level) return <span className="muted">—</span>
+  const what = e.level === 'store' ? 'Store' : e.level === 'collection' ? 'Collection' : 'Product'
+  return <span><span className="badge">{what}</span> <small>{e.level === 'store' || !e.level_targets.length ? 'All' : e.level_targets.join(', ')}</small></span>
+}
+
+export function TechCell({ e }: { e: Ev }) {
+  return (
+    <div style={{ display: 'grid', gap: 3, justifyItems: 'start' }}>
+      <TechStatusBadge ev={e} />
+      {e.code_active_after_end && <span className="badge warning" title="The offer has ended but its code still works in the store: late redemptions are possible and are counted apart in Analysis.">▲ Code active after end</span>}
+    </div>
+  )
+}
+
+type PlanRow = Ev & { _status: number; _start: string; _end: string; _dur: number; _store: string; _name: string }
+
+/** Offers Plan / Offers DB table, with the columns of the marketing calendar. */
+export function PlanTable({ rows, onOpen, showResults = false, empty }: { rows: Ev[]; onOpen: (e: Ev) => void; showResults?: boolean; empty: ReactNode }) {
+  const [filter, setFilter] = useState<string[]>([])
+  const [reviewOnly, setReviewOnly] = useState(false)
+  const shown = rows.filter((r) => (filter.length === 0 || filter.includes(r.status ?? 'not_set')) && (!reviewOnly || r.needs_review))
+  const { sorted, th } = useSort<PlanRow>(shown.map((r) => ({ ...r, _status: statusRank(r.status), _start: r.start_date ?? '', _end: r.end_date ?? '',
+    _dur: r.duration_days ?? -1, _store: r.store_code, _name: r.name })), '_start', !!showResults)
+  const toReview = rows.filter((r) => r.needs_review).length
+  return (
+    <>
+      <div className="row" style={{ marginBottom: 10, justifyContent: 'space-between' }}>
+        <StatusFilter rows={rows} value={filter} onChange={setFilter} />
+        <label className="row" style={{ gap: 6 }}>
+          <input type="checkbox" checked={reviewOnly} onChange={(e) => setReviewOnly(e.target.checked)} />
+          <span className="secondary">Needs review only ({toReview})</span>
+        </label>
+      </div>
+      {!sorted.length ? empty : (
+        <div className="table-wrap plan-table" style={{ maxHeight: 680 }}>
+          <table>
+            <thead><tr>
+              {th('_start', 'Start Date', false)}{th('_end', 'End Date', false)}{th('_dur', 'Duration (days)')}{th('_name', 'Name', false)}
+              {th('_store', 'Store', false)}{th('_status', 'Status', false)}<th>Description</th><th>Level</th><th>Type</th><th>Offer</th>
+              <th>Discount Code</th><th className="num">Threshold</th><th>Technical Status</th><th>Bonus</th><th>Landing Page</th><th>Articles</th><th>Displayed</th>
+              {showResults && <><th className="num">Offer orders</th><th className="num">Share of orders</th><th className="num">Offer sales</th></>}
+            </tr></thead>
+            <tbody>{sorted.map((e) => (
+              <tr key={e.id} className="clickable" onClick={() => onOpen(e)}>
+                <td style={{ whiteSpace: 'nowrap' }}>{date(e.start_date)}</td>
+                <td style={{ whiteSpace: 'nowrap' }}>{date(e.end_date)}</td>
+                <td className="num">{e.duration_days ?? '—'}</td>
+                <td style={{ minWidth: 160 }}><strong>{e.name}</strong>
+                  {e.data_issues?.length > 0 && <span className="badge warning" title={e.data_issues.join('\n')} style={{ marginLeft: 6 }}>▲ {e.data_issues.length}</span>}</td>
+                <td>{e.is_demo ? <DemoBadge /> : <span className="badge">{e.store_code}</span>}</td>
+                <td style={{ whiteSpace: 'nowrap' }}>
+                  <OfferStatusBadge status={e.status} />
+                  {e.conflict_open && <div><span className="badge critical" title={e.status_conflict ?? ''}>▲ Conflict — review</span></div>}
+                  {!e.conflict_open && e.review_prompts.length > 0 && <div><small className="warning-ink" title={e.review_prompts.join('\n')}>Review needed</small></div>}
+                </td>
+                <td className="clip" title={e.description ?? ''}><small>{e.description ?? '—'}</small></td>
+                <td style={{ minWidth: 120 }}><LevelCell e={e} /></td>
+                <td><small>{e.offer_type ? label(e.offer_type) : '—'}</small></td>
+                <td className="clip" title={e.offer_text ?? ''}><small>{e.offer_text ?? '—'}</small></td>
+                <td className="mono">{e.coupon_codes.join(', ') || <span className="muted">{e.activation === 'automatic' ? 'Automatic' : '—'}</span>}</td>
+                <td className="num">{e.threshold_amount != null ? money(e.threshold_amount, e.currency) : <small className="muted">{e.threshold_text && e.threshold_text !== 'none' ? e.threshold_text : '—'}</small>}</td>
+                <td style={{ whiteSpace: 'nowrap' }}><TechCell e={e} /></td>
+                <td className="clip" title={e.bonus ?? ''}><small>{e.bonus ?? '—'}</small></td>
+                <td>{e.landing_page ? <a href={e.landing_page} target="_blank" rel="noreferrer noopener" onClick={(x) => x.stopPropagation()}><small>{e.landing_page.replace(/^https?:\/\/(www\.)?/, '').slice(0, 40)}</small></a> : <span className="muted">—</span>}</td>
+                <td className="clip" title={e.articles ?? ''}><small>{e.articles ?? '—'}</small></td>
+                <td style={{ whiteSpace: 'nowrap' }}>
+                  {e.display ? <small>{DISPLAY_TEXT[e.display] ?? label(e.display)}</small> : <span className="muted">—</span>}
+                  {e.display === 'full_site' && e.has_banner && <div style={{ marginTop: 4 }}><BannerThumb eventId={e.id} name={e.name} /></div>}
+                </td>
+                {showResults && <>
+                  <td className="num">{num(e.offer_orders)}</td>
+                  <td className="num">{pct(e.offer_order_share)}</td>
+                  <td className="num">{money(e.offer_sales, e.currency)}</td>
+                </>}
+              </tr>))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
   )
 }

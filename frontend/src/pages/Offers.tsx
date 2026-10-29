@@ -4,67 +4,54 @@ import { api, qs } from '../api'
 import { date, label, money, num, pct } from '../format'
 import { useApp } from '../state'
 import { Card, Drawer, Empty, ErrorBox, Field, Loading, PageHead, Source, Status, Tabs } from '../ui'
-import { OFFER_STATUSES, OffersTable, OfferStatusBadge, StatusPanel, TechStatusBadge, type Ev } from '../offerStatus'
+import { OFFER_STATUSES, OfferStatusBadge, PlanTable, StatusPanel, TechStatusBadge, type Ev } from '../offerStatus'
+import { BannerView, useBanner } from '../banner'
 
 type Alert = { severity: string; kind: string; title: string; detail: string; store_code: string }
 
-export function LiveOffers() {
+export function OffersPlan() {
   const { storeId, includeDemo } = useApp()
-  const qc = useQueryClient()
-  const [edit, setEdit] = useState<Ev | null>(null)
-  const q = useQuery({ queryKey: ['live-offers', storeId, includeDemo], queryFn: () => api.get<Ev[]>(`/live-offers${qs({ store_id: storeId, include_demo: includeDemo })}`) })
-  const refresh = useMutation({ mutationFn: () => api.post(`/stores/${storeId}/offer-status/refresh`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['live-offers'] }); qc.invalidateQueries({ queryKey: ['events'] }) } })
+  const [tab, setTab] = useState('plan')
+  const [edit, setEdit] = useState<Ev | 'new' | null>(null)
+  const q = useQuery({ queryKey: ['events', storeId, 'plan', includeDemo], queryFn: () => api.get<Ev[]>(`/events${qs({ store_id: storeId, include_demo: includeDemo, when: 'plan' })}`) })
   const rows = q.data ?? []
   const n = (s: string) => rows.filter((r) => r.status === s).length
   return (
     <>
-      <PageHead title="Live offers" desc="What is running, about to run or paused right now — with each offer's operational status next to what the connected store actually shows."
-        actions={storeId ? <button onClick={() => refresh.mutate()} disabled={refresh.isPending}>{refresh.isPending ? 'Checking…' : 'Re-check store status'}</button> : undefined} />
-      <ErrorBox error={refresh.error} />
-      {q.isLoading ? <Loading /> : q.error ? <ErrorBox error={q.error} /> : (
-        <>
-          <div className="kpis" style={{ marginBottom: 14 }}>
-            <div className="kpi"><div className="k-label">Live</div><div className="k-value">{n('live')}</div></div>
-            <div className="kpi"><div className="k-label">Scheduled</div><div className="k-value">{n('scheduled')}</div></div>
-            <div className="kpi"><div className="k-label">In progress</div><div className="k-value">{n('in_progress')}</div></div>
-            <div className="kpi"><div className="k-label">Paused</div><div className="k-value">{n('paused')}</div></div>
-            <div className="kpi"><div className="k-label">Status conflicts</div><div className={`k-value ${rows.some((r) => r.conflict_open) ? 'critical-ink' : ''}`}>{rows.filter((r) => r.conflict_open).length}</div><div className="k-sub">offer status vs store</div></div>
-            <div className="kpi"><div className="k-label">Need review</div><div className="k-value">{rows.filter((r) => r.needs_review).length}</div></div>
-          </div>
-          <Card title="Offers">
-            <OffersTable rows={rows} onOpen={setEdit} empty={<Empty title="No current offers">Plan one in Offer planning, or connect the store to detect its active discounts.</Empty>} />
-            <Source>Offer status is the operational stage you (or store sync, for offers detected in the store) recorded; it never changes because a date passes. Technical status is the evidence from the connected store's synced discounts. Completed and cancelled offers stay here for 60 days.</Source>
-          </Card>
-        </>
+      <PageHead title="Offers Plan" desc="Offers running today or planned for the future — from the marketing calendar and the custom offers you add. Past offers move to the Offers DB."
+        actions={<button className="primary" onClick={() => setEdit('new')}>New offer</button>} />
+      <div className="kpis" style={{ marginBottom: 14 }}>
+        <div className="kpi"><div className="k-label">Live</div><div className="k-value">{n('live')}</div></div>
+        <div className="kpi"><div className="k-label">Scheduled</div><div className="k-value">{n('scheduled')}</div></div>
+        <div className="kpi"><div className="k-label">In progress</div><div className="k-value">{n('in_progress')}</div></div>
+        <div className="kpi"><div className="k-label">Paused</div><div className="k-value">{n('paused')}</div></div>
+        <div className="kpi"><div className="k-label">Need review</div><div className={`k-value ${rows.some((r) => r.conflict_open) ? 'critical-ink' : ''}`}>{rows.filter((r) => r.needs_review).length}</div><div className="k-sub">status or dates to confirm</div></div>
+      </div>
+      <Tabs value={tab} onChange={setTab} tabs={[{ id: 'plan', label: 'Plan' }, { id: 'alerts', label: 'Monitoring' }]} />
+      {tab === 'plan' && (
+        <Card>
+          {q.isLoading ? <Loading /> : q.error ? <ErrorBox error={q.error} /> : (
+            <PlanTable rows={rows} onOpen={setEdit} empty={<Empty title="Nothing planned">Import the marketing calendar (Offers DB → Import) or create an offer.</Empty>} />
+          )}
+          <Source>Offers with future dates are Scheduled automatically; Live, Paused, Completed and Cancelled are set by you (dates alone never make an offer Live). Technical Status is what the store shows for the offer's code — including codes still active after the offer ended.</Source>
+        </Card>
       )}
+      {tab === 'alerts' && <Alerts />}
       <EventEditor ev={edit} onClose={() => setEdit(null)} />
     </>
   )
 }
 
-export function OffersCalendar() {
-  const [tab, setTab] = useState('events')
+export function OffersDB() {
+  const [tab, setTab] = useState('expired')
   return (
     <>
-      <PageHead title="Offer planning" desc="Plan upcoming offers and keep every past one documented: dates, codes, targets, results and status — plus the checks that need attention before and during each offer." />
-      <Tabs value={tab} onChange={setTab} tabs={[{ id: 'events', label: 'Planned & upcoming' }, { id: 'alerts', label: 'Monitoring' }]} />
-      {tab === 'events' && <Events />}
-      {tab === 'alerts' && <Alerts />}
-    </>
-  )
-}
-
-export function OfferDatabase() {
-  const [tab, setTab] = useState('all')
-  return (
-    <>
-      <PageHead title="Offer database" desc="Every offer ever run or planned with its status, reusable offer mechanics, every coupon code (synced from the store or documented), the historical record of what worked, and the workbook import." />
+      <PageHead title="Offers DB" desc="Every offer that has ended, with its documented results — plus offer templates, coupon codes, what worked and the workbook import." />
       <Tabs value={tab} onChange={setTab} tabs={[
-        { id: 'all', label: 'All offers' }, { id: 'library', label: 'Offer templates' }, { id: 'coupons', label: 'Coupon codes' },
-        { id: 'history', label: 'What worked' }, { id: 'import', label: 'Import workbook' },
+        { id: 'expired', label: 'Expired offers' }, { id: 'history', label: 'What worked' }, { id: 'coupons', label: 'Coupon codes' },
+        { id: 'library', label: 'Offer templates' }, { id: 'import', label: 'Import' },
       ]} />
-      {tab === 'all' && <AllOffers />}
+      {tab === 'expired' && <ExpiredOffers />}
       {tab === 'library' && <Library />}
       {tab === 'coupons' && <Coupons />}
       {tab === 'history' && <History />}
@@ -73,34 +60,16 @@ export function OfferDatabase() {
   )
 }
 
-function Events() {
+function ExpiredOffers() {
   const { storeId, includeDemo } = useApp()
   const [edit, setEdit] = useState<Ev | 'new' | null>(null)
-  const today = new Date().toISOString().slice(0, 10)
-  const q = useQuery({ queryKey: ['events', storeId, 'all', includeDemo], queryFn: () => api.get<Ev[]>(`/events${qs({ store_id: storeId, include_demo: includeDemo })}`) })
-  // Planning view: anything not yet finished, or starting/ending from today on.
-  const rows = (q.data ?? []).filter((e) => !['completed', 'cancelled'].includes(e.status ?? '') || (e.end_date ?? '') >= today)
+  const q = useQuery({ queryKey: ['events', storeId, 'expired', includeDemo], queryFn: () => api.get<Ev[]>(`/events${qs({ store_id: storeId, include_demo: includeDemo, when: 'expired' })}`) })
   return (
-    <Card title="Planned & upcoming offers" extra={<button className="primary" onClick={() => setEdit('new')}>New offer</button>}>
+    <Card>
       {q.isLoading ? <Loading /> : q.error ? <ErrorBox error={q.error} /> : (
-        <OffersTable rows={rows} onOpen={setEdit} empty={<Empty title="Nothing planned">Create an offer or import the offers workbook. Past offers are in the Offer database.</Empty>} />
+        <PlanTable rows={q.data ?? []} onOpen={setEdit} showResults empty={<Empty title="No expired offers">Offers appear here once their end date has passed.</Empty>} />
       )}
-      <Source>New offers start as In Progress; move them to Scheduled when ready and to Live when launched. Dates never change the status on their own.</Source>
-      <EventEditor ev={edit} onClose={() => setEdit(null)} />
-    </Card>
-  )
-}
-
-function AllOffers() {
-  const { storeId, includeDemo } = useApp()
-  const [edit, setEdit] = useState<Ev | 'new' | null>(null)
-  const q = useQuery({ queryKey: ['events', storeId, 'all', includeDemo], queryFn: () => api.get<Ev[]>(`/events${qs({ store_id: storeId, include_demo: includeDemo })}`) })
-  return (
-    <Card title="All offers" extra={<button className="primary" onClick={() => setEdit('new')}>New offer</button>}>
-      {q.isLoading ? <Loading /> : q.error ? <ErrorBox error={q.error} /> : (
-        <OffersTable rows={q.data ?? []} onOpen={setEdit} showResults empty={<Empty title="No offers">Create one or import the offers workbook.</Empty>} />
-      )}
-      <Source>Recorded results are as documented (spreadsheet or manual). "Share of orders" counts orders that used the offer — not orders caused by it. Imported history gets a status only where the workbook proves it (results recorded → Completed, "not launched" → Cancelled); the rest is "Not set" for you to confirm.</Source>
+      <Source>Recorded results are as documented (spreadsheet or manual). "Share of orders" counts orders that used the offer — not orders caused by it. Imported history gets a status only where the workbook proves it; the rest is "Not set" for you to confirm.</Source>
       <EventEditor ev={edit} onClose={() => setEdit(null)} />
     </Card>
   )
@@ -123,18 +92,18 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
       const num = (s: string) => (s === '' ? null : Number(s))
       for (const [k, val] of Object.entries(f)) {
         if (['threshold_amount', 'offer_orders', 'total_orders', 'offer_sales', 'est_incentive_cost'].includes(k)) body[k] = num(val)
-        else if (k === 'coupon_codes' || k === 'channels') body[k] = val.split(',').map((x) => x.trim()).filter(Boolean)
+        else if (k === 'coupon_codes' || k === 'channels' || k === 'level_targets') body[k] = val.split(',').map((x) => x.trim()).filter(Boolean)
         else if (k === 'target_orders') body.targets = { ...(base?.targets ?? {}), offer_orders: num(val) }
         else body[k] = val === '' ? null : val
       }
       if (isNew) return api.post('/events', { store_id: Number(f.store_id ?? storeId ?? stores[0]?.id), name: f.name ?? '', ...body })
       return api.patch(`/events/${base!.id}`, body)
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['events'] }); qc.invalidateQueries({ queryKey: ['live-offers'] }); setF({}); setFresh(null); onClose() },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['events'] }); setF({}); setFresh(null); onClose() },
   })
   const verify = useMutation({ mutationFn: () => api.post<{ status: string; findings: string[] }>(`/events/${base!.id}/verify`),
     onSuccess: async () => { qc.invalidateQueries({ queryKey: ['events'] }); qc.invalidateQueries({ queryKey: ['live-offers'] }); setFresh(await api.get<Ev>(`/events/${base!.id}`)) } })
-  const del = useMutation({ mutationFn: () => api.del(`/events/${base!.id}`), onSuccess: () => { qc.invalidateQueries({ queryKey: ['events'] }); qc.invalidateQueries({ queryKey: ['live-offers'] }); onClose() } })
+  const del = useMutation({ mutationFn: () => api.del(`/events/${base!.id}`), onSuccess: () => { qc.invalidateQueries({ queryKey: ['events'] }); onClose() } })
   const set = (k: string) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value })
   if (ev === null) return null
   const m = results.data?.measured
@@ -153,7 +122,7 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
         {isNew && <Field label="Store"><select value={f.store_id ?? storeId ?? stores[0]?.id ?? ''} onChange={set('store_id')}>{stores.filter((s) => !s.is_demo).map((s) => <option key={s.id} value={s.id}>{s.code}</option>)}</select></Field>}
         <Field label="Name"><input value={v('name', base?.name)} onChange={set('name')} /></Field>
         <Field label="Offer type"><select value={v('offer_type', base?.offer_type)} onChange={set('offer_type')}><option value="">—</option>{meta?.offer_types.map((t) => <option key={t} value={t}>{label(t)}</option>)}</select></Field>
-        {isNew && <Field label="Offer status"><select value={f.status ?? 'in_progress'} onChange={set('status')}>{OFFER_STATUSES.map((s) => <option key={s.value} value={s.value} title={s.hint}>{s.label}</option>)}</select></Field>}
+        {isNew && <Field label="Offer status"><select value={f.status ?? ''} onChange={set('status')}><option value="">Automatic (Scheduled if it starts later)</option>{OFFER_STATUSES.map((s) => <option key={s.value} value={s.value} title={s.hint}>{s.label}</option>)}</select></Field>}
         <Field label="Start"><input type="date" value={v('start_date', base?.start_date)} onChange={set('start_date')} /></Field>
         <Field label="End"><input type="date" value={v('end_date', base?.end_date)} onChange={set('end_date')} /></Field>
         <Field label="Coupon codes (comma separated)"><input value={v('coupon_codes', base?.coupon_codes.join(', '))} onChange={set('coupon_codes')} /></Field>
@@ -161,9 +130,17 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
         <Field label="Activation"><select value={v('activation', base?.activation)} onChange={set('activation')}><option value="">—</option><option value="manual_code">Manual code</option><option value="automatic">Automatic</option></select></Field>
         <Field label="Channels (comma separated)"><input value={v('channels', base?.channels.join(', '))} onChange={set('channels')} /></Field>
         <Field label="Target offer orders"><input type="number" value={v('target_orders', base?.targets?.offer_orders)} onChange={set('target_orders')} /></Field>
+        <Field label="Level"><select value={v('level', base?.level)} onChange={set('level')}><option value="">—</option><option value="store">Store (all)</option><option value="collection">Collection</option><option value="product">Product</option></select></Field>
+        <Field label="Collections / products (comma separated, empty = All)"><input value={v('level_targets', base?.level_targets?.join(', '))} onChange={set('level_targets')} /></Field>
+        <Field label="Displayed"><select value={v('display', base?.display)} onChange={set('display')}><option value="">—</option><option value="full_site">Full-Displayed</option><option value="email_only">Email-Only</option><option value="hidden">Hidden</option></select></Field>
+        <Field label="Landing page"><input value={v('landing_page', base?.landing_page)} onChange={set('landing_page')} placeholder="https://…" /></Field>
       </div>
-      <div className="mt"><Field label="Offer description"><textarea value={v('offer_text', base?.offer_text)} onChange={set('offer_text')} /></Field></div>
+      <div className="mt"><Field label="Description"><textarea value={v('description', base?.description)} onChange={set('description')} /></Field></div>
+      <div className="mt"><Field label="Offer"><textarea value={v('offer_text', base?.offer_text)} onChange={set('offer_text')} /></Field></div>
       <div className="mt"><Field label="Bonus / gift"><input value={v('bonus', base?.bonus)} onChange={set('bonus')} /></Field></div>
+      <div className="mt"><Field label="Articles"><input value={v('articles', base?.articles)} onChange={set('articles')} /></Field></div>
+      <div className="mt"><Field label="Banner message"><textarea value={v('banner_message', base?.banner_message)} onChange={set('banner_message')} /></Field></div>
+      {base && <BannerEditor ev={base} />}
       <div className="section-title">Recorded results (documented)</div>
       <div className="form-grid">
         <Field label="Offer orders"><input type="number" value={v('offer_orders', base?.offer_orders)} onChange={set('offer_orders')} /></Field>
@@ -196,6 +173,33 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
       {isNew && <div className="notice info mt"><small>Technical status starts as <strong>Not verified</strong>: it is checked against the connected store's synced discounts by the offer's coupon codes.</small></div>}
       <div className="mt"><ErrorBox error={save.error ?? verify.error ?? del.error} /></div>
     </Drawer>
+  )
+}
+
+function BannerEditor({ ev }: { ev: Ev }) {
+  const qc = useQueryClient()
+  const banner = useBanner(ev.id, ev.has_banner)
+  const upload = useMutation({
+    mutationFn: async (file: File) => {
+      const isHtml = /\.html?$/i.test(file.name) || file.type === 'text/html'
+      const content = isHtml ? await file.text() : await new Promise<string>((ok, ko) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.onerror = ko; r.readAsDataURL(file) })
+      return api.put(`/events/${ev.id}/banner`, { kind: isHtml ? 'html' : 'image', content, filename: file.name })
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['banner', ev.id] }); qc.invalidateQueries({ queryKey: ['events'] }) },
+  })
+  const remove = useMutation({ mutationFn: () => api.del(`/events/${ev.id}/banner`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['banner', ev.id] }); qc.invalidateQueries({ queryKey: ['events'] }) } })
+  return (
+    <>
+      <div className="section-title">Banner design</div>
+      {banner.data?.content && <div style={{ marginBottom: 8 }}><BannerView banner={banner.data} width={360} /><small className="muted">{banner.data.filename}</small></div>}
+      <div className="row">
+        <input type="file" accept=".html,.htm,image/png,image/jpeg,image/webp" onChange={(e) => e.target.files?.[0] && upload.mutate(e.target.files[0])} />
+        {ev.has_banner && <button onClick={() => remove.mutate()}>Remove</button>}
+      </div>
+      <small className="muted">HTML design file (the element with id "banner-desktop" is used for the preview) or an image, up to 3 MB. Shown as a preview when the offer is Full-Displayed.</small>
+      <ErrorBox error={upload.error ?? remove.error} />
+    </>
   )
 }
 

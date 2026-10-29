@@ -37,6 +37,14 @@ class Product(TimestampMixin, Base):
     vendor: Mapped[str | None] = mapped_column(String(255))
     status: Mapped[str | None] = mapped_column(String(24))  # ACTIVE | DRAFT | ARCHIVED
     tags: Mapped[list[Any]] = mapped_column(default=list)
+    # Tags set by people in this application (e.g. "Featured"); never overwritten by a sync.
+    manual_tags: Mapped[list[Any]] = mapped_column(default=list)
+    # Performance tag from the last 30 days of sales: best_seller | top_seller | popular | free | None.
+    perf_tag: Mapped[str | None] = mapped_column(String(16))
+    perf_rank: Mapped[int | None] = mapped_column(Integer)
+    perf_units_30d: Mapped[int | None] = mapped_column(Integer)
+    perf_revenue_30d: Mapped[float | None] = mapped_column(Money)
+    perf_computed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     source_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     source_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -233,3 +241,28 @@ __all__ = [
     "TrafficDaily",
     "Variant",
 ]
+
+
+class SalesReportRow(Base):
+    """One row of a platform sales report (units sold per product over a period).
+
+    Kept as received, with how it was matched to a catalog product, so the performance
+    tags can always be traced back to the report they came from."""
+
+    __tablename__ = "sales_report_rows"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id", ondelete="CASCADE"), index=True)
+    source: Mapped[str] = mapped_column(String(24))
+    period_start: Mapped[date] = mapped_column(Date)
+    period_end: Mapped[date] = mapped_column(Date)
+    title: Mapped[str] = mapped_column(String(500))
+    external_id: Mapped[str | None] = mapped_column(String(128))
+    sku: Mapped[str | None] = mapped_column(String(255))
+    units: Mapped[int] = mapped_column(Integer, default=0)
+    revenue: Mapped[float | None] = mapped_column(Money)  # as written in the report, if present
+    avg_price: Mapped[float | None] = mapped_column(Money)
+    currency: Mapped[str | None] = mapped_column(String(3))
+    product_id: Mapped[int | None] = mapped_column(ForeignKey("products.id", ondelete="SET NULL"), index=True)
+    match_method: Mapped[str | None] = mapped_column(String(16))  # title | external_id | sku | None
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

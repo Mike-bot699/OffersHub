@@ -69,6 +69,18 @@ class PromoEvent(TimestampMixin, Base):
     threshold_amount: Mapped[float | None] = mapped_column(Money)
     threshold_text: Mapped[str | None] = mapped_column(String(100))
     bonus: Mapped[str | None] = mapped_column(Text)
+    description: Mapped[str | None] = mapped_column(Text)  # what the event is about (campaign brief)
+    # Where the offer applies: store (everything) | collection | product. `level_targets` names the
+    # collections or products; empty means all of them.
+    level: Mapped[str | None] = mapped_column(String(16))
+    level_targets: Mapped[list[Any]] = mapped_column(default=list)
+    landing_page: Mapped[str | None] = mapped_column(String(1000))
+    articles: Mapped[str | None] = mapped_column(Text)
+    banner_message: Mapped[str | None] = mapped_column(Text)
+    # Banner design for full-site offers: an HTML design file or an image (data URL).
+    banner_kind: Mapped[str | None] = mapped_column(String(8))  # html | image
+    banner_content: Mapped[str | None] = mapped_column(Text)
+    banner_filename: Mapped[str | None] = mapped_column(String(255))
     eligible_products: Mapped[list[Any]] = mapped_column(default=list)
     est_incentive_cost: Mapped[float | None] = mapped_column(Money)
     targets: Mapped[dict[str, Any]] = mapped_column(default=dict)  # {"offer_orders": 200, "revenue": 20000}

@@ -5,7 +5,7 @@ import { NeedStore } from '../NeedStore'
 import { useApp, type StoreRow } from '../state'
 import { Bars, TrendLine } from '../charts'
 import { Card, ErrorBox, Kpi, Loading, PageHead, Share, Source, useSort } from '../ui'
-import type { DiscountAnalysis } from './Overview'
+import type { DiscountAnalysis } from '../types'
 
 type Dependency = { discounts: { aov_discounted: number | null; aov_full_price: number | null; avg_discount_depth: number | null; discounted_net_sales_share: number | null } }
 

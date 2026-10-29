@@ -37,6 +37,10 @@ class Store(TimestampMixin, Base):
     commercial_settings: Mapped[dict[str, Any]] = mapped_column(default=lambda: dict(DEFAULT_COMMERCIAL_SETTINGS))
     constraints: Mapped[dict[str, Any]] = mapped_column(default=dict)
     notes: Mapped[str | None] = mapped_column(Text)
+    # Small image (data URL) shown in the store switcher; the store code's letter is used without it.
+    logo: Mapped[str | None] = mapped_column(Text)
+    # Storefront domain (e.g. thelittlelearnerstoys.com); product links are built from it.
+    product_host: Mapped[str | None] = mapped_column(String(255))
 
     objectives: Mapped[list["StoreObjective"]] = relationship(
         back_populates="store", cascade="all, delete-orphan", order_by="StoreObjective.priority"

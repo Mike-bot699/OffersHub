@@ -47,9 +47,14 @@ EVENT_COLUMNS = {
     "offer activation": "activation", "bonus": "bonus", "displayed": "display", "offers orders": "offer_orders",
     "total orders": "total_orders", "%": "pct", "sales amount": "sales", "total sent": "emails_sent",
     "order per email": "orders_per_email", "bonus give away": "bonus_giveaway", "notes": "notes",
+    # Marketing calendar (Events sheet) columns
+    "event description": "description", "description": "description", "days": "duration",
+    "collection": "collection", "level": "collection", "article": "articles", "banners message": "banner_message",
+    "banner message": "banner_message", "landing page": "landing_page", "activation": "activation",
 }
 
-DISPLAY_MAP = {"full displayed": "full_site", "fully displayed": "full_site", "email only": "email_only"}
+DISPLAY_MAP = {"full displayed": "full_site", "fully displayed": "full_site", "email only": "email_only",
+               "content email": "email_only"}
 
 
 def _header_map(headers: list[Any]) -> dict[int, str]:
@@ -226,6 +231,28 @@ def _resolve_stores(db, sheets, events_sheet, codes_sheet, report, create_missin
     return out
 
 
+def parse_level(raw) -> tuple[str | None, list[str]]:
+    """Where an offer applies, from the calendar's Collection column.
+    Storewide / All -> store; a /products/ URL -> that product; anything else -> collection(s)."""
+    text = strip_decoration(str(raw or "")).strip()
+    if not text or text in ("-", "—"):
+        return None, []
+    low = text.lower()
+    if low in ("all", "store", "whole store") or low.startswith(("storewide", "sitewide")):
+        return "store", []
+    parts = [p.strip() for p in re.split(r"[\n,]+", text) if p.strip()]
+    targets, level = [], "collection"
+    for part in parts:
+        m = re.search(r"/(collections|products)/([^/?#\s]+)", part)
+        if m:
+            if m.group(1) == "products":
+                level = "product"
+            targets.append(m.group(2).replace("-", " ").title())
+        else:
+            targets.append(part)
+    return level, targets
+
+
 def _cell(row: list, idx: int | None):
     if idx is None or idx >= len(row):
         return None
@@ -273,12 +300,16 @@ def _import_events(db, rows, sheet, stores, report: ImportReport, batch, dry_run
         offer_text = strip_decoration(str(g("offer") or "")) or None
         bonus = strip_decoration(str(g("bonus") or "")) or None
         coupon_raw = str(g("coupon") or "").strip()
-        coupons = [c.strip().upper() for c in coupon_raw.replace(" + ", "/").replace(",", "/").split("/")
-                   if c.strip() and c.strip() not in ("-", "—")]
+        coupons = [c.strip().upper() for c in coupon_raw.replace(" + ", "/").replace(",", "/").replace("\n", "/")
+                   .split("/") if c.strip() and c.strip() not in ("-", "—")]
 
         thr_raw = str(g("threshold") or "").strip()
         thr_amount = None
         thr_text = thr_raw or None
+        if thr_raw.lower() in ("no minimum", "n/a", "none", "0.0"):
+            thr_raw, thr_text = "", "none"
+        elif thr_raw and not any(ch.isdigit() for ch in thr_raw) and thr_raw not in ("-", "—"):
+            thr_raw = ""  # a description such as "Number of items in cart": kept as text, not a number
         if thr_raw and thr_raw not in ("-", "—"):
             parts = [p for p in thr_raw.replace("/", " / ").split(" / ") if p.strip()]
             if len(parts) > 1:
@@ -331,7 +362,8 @@ def _import_events(db, rows, sheet, stores, report: ImportReport, batch, dry_run
         elif end and end < today and has_results:
             status, status_note = "completed", "Workbook records results for this offer"
         elif start and start > today:
-            status, status_note = "in_progress", "Planned in the workbook"
+            # Future dates: the offer is planned, so it enters the plan as Scheduled.
+            status, status_note = "scheduled", "Future dates in the workbook"
         else:
             status, status_note = None, None
             if not start:
@@ -343,6 +375,9 @@ def _import_events(db, rows, sheet, stores, report: ImportReport, batch, dry_run
         display = next((v for k, v in DISPLAY_MAP.items() if k in display_raw), None) if display_raw else None
         channels = ["email"] if display == "email_only" else (["site", "email"] if display == "full_site" else [])
 
+        level, level_targets = parse_level(g("collection"))
+        landing = str(g("landing_page") or "").strip()
+        landing = landing if landing.lower().startswith(("http://", "https://", "www.")) else None
         cls = classify_offer(offer_text, bonus, coupon_raw)
         key_src = f"{code}|{norm_key(name)}|{start or year}|{'/'.join(coupons)}"
         nkey = hashlib.sha1(key_src.encode()).hexdigest()[:24]
@@ -390,6 +425,16 @@ def _import_events(db, rows, sheet, stores, report: ImportReport, batch, dry_run
         ev.threshold_amount = thr_amount
         ev.threshold_text = thr_text
         ev.bonus = bonus
+        if col.get("description") is not None:
+            ev.description = strip_decoration(str(g("description") or "")) or None
+        if col.get("collection") is not None:
+            ev.level, ev.level_targets = level, level_targets
+        if col.get("landing_page") is not None:
+            ev.landing_page = landing
+        if col.get("articles") is not None:
+            ev.articles = strip_decoration(str(g("articles") or "")) or None
+        if col.get("banner_message") is not None:
+            ev.banner_message = str(g("banner_message") or "").strip() or None
         ev.offer_orders = int(offer_orders) if offer_orders is not None else None
         ev.total_orders = int(total_orders) if total_orders is not None else None
         ev.offer_sales = sales

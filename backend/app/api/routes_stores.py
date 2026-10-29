@@ -52,11 +52,13 @@ class ObjectiveIn(BaseModel):
 
 
 def _store_card(db: Session, s: Store) -> dict:
-    integ = db.scalar(select(Integration).where(Integration.store_id == s.id))
+    integ = db.scalar(select(Integration).where(Integration.store_id == s.id)
+                      .order_by((Integration.provider == "elizeta").desc()).limit(1))
     d = to_dict(s)
     d["objectives"] = [to_dict(o) for o in s.objectives]
     d["integration"] = {"status": integ.status if integ else "not_configured",
-                        "shop_domain": integ.shop_domain if integ else None}
+                        "shop_domain": integ.shop_domain if integ else None,
+                        "provider": integ.provider if integ else None}
     d["freshness"] = freshness(db, s)
     return d
 

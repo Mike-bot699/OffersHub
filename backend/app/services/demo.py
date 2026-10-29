@@ -237,11 +237,65 @@ def reset_demo(db: Session, *, days: int = 540, seed: int = 7, daily_orders: flo
                    verification_status="unverifiable"),
     ])
     db.flush()
+    details = {
+        "Autumn Opener": {"description": "Season opener for the autumn range, launched with the new jackets.",
+                              "level": "store", "landing_page": "https://demo-outerwear.example/collections/autumn",
+                              "articles": "Layering for cold mornings (demo article)", "banner_kind": "html",
+                              "banner_content": _demo_banner("Autumn Opener", "Extra 10% off all orders", "FALL10",
+                                                          "#2f4a3a", "#f2b84b"),
+                              "banner_filename": "autumn-opener-banner.html"},
+        "VIP Early Access": {"description": "Early access to the winter sale for VIP customers by email.",
+                                 "level": "collection", "level_targets": ["Winter Jackets"]},
+        "Holiday Gift Guide bundle": {"description": "Gift guide bundle: jacket + scarf.", "level": "product",
+                                          "level_targets": ["Alpine Parka", "Wool Scarf"],
+                                          "landing_page": "https://demo-outerwear.example/pages/gift-guide",
+                                          "articles": "The outerwear gift guide (demo article)"},
+        "Spring Rain Promo": {"level": "collection", "level_targets": ["Rainwear"]},
+    }
+    for ev in db.scalars(select(PromoEvent).where(PromoEvent.store_id == store.id)):
+        for k, v in details.get(ev.name, {}).items():
+            setattr(ev, k, v)
+        if ev.name == "Black Friday Week" and ev.status == "scheduled":
+            ev.description, ev.level = "Free scarf with orders over $120 for the whole Black Friday week.", "store"
+            ev.landing_page = "https://demo-outerwear.example/collections/black-friday"
+            ev.banner_kind, ev.banner_filename = "html", "black-friday-banner.html"
+            ev.banner_content = _demo_banner("Black Friday Week", "Free wool scarf with orders over $120", None,
+                                             "#151515", "#e94b3c")
+        elif ev.name == "Black Friday Week":
+            ev.level, ev.description = "store", "Last year's Black Friday: 20% off orders over $99."
     from app.offers.status import sync_store_offers
 
     for ev in db.scalars(select(PromoEvent).where(PromoEvent.store_id == store.id)):
         target, ev.status = ev.status, None
         set_status(db, ev, target, source="demo", actor="demo data", note="Synthetic demo offer")
     sync_store_offers(db, store)
+    from app.services.elizeta import refresh_tags
+
+    refresh_tags(db, store)
+    for p in db.scalars(select(Product).where(Product.store_id == store.id).order_by(Product.id).limit(2)):
+        p.manual_tags = ["Featured"]
     db.commit()
     return store
+
+
+def _demo_banner(title: str, offer: str, code: str | None, bg: str, accent: str) -> str:
+    """A synthetic banner design in the same layout as the team's banner files (#banner-desktop
+    plus a mobile version), so the preview can be shown on demo data."""
+    code_line = f' with code <strong style="color:{accent}">{code}</strong>' if code else ""
+    return f"""<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{{margin:0;background:#111}}</style></head><body>
+<div style="display:flex;gap:60px;padding:40px;width:max-content">
+<div><p style="margin:0 0 14px;font:600 16px sans-serif;color:#bbb">Desktop · 1975×750</p>
+<div id="banner-desktop" style="position:relative;width:1975px;height:750px;overflow:hidden;background:{bg};font-family:sans-serif;color:#fff">
+<div style="position:absolute;left:0;top:0;width:1125px;height:750px;background:linear-gradient(135deg,{accent},{bg})"></div>
+<div style="position:absolute;left:1170px;top:0;width:700px;height:750px;display:flex;flex-direction:column;justify-content:center">
+<p style="margin:0 0 14px;font-size:30px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:{accent}">Demo store</p>
+<h1 style="margin:0;font-size:96px;font-weight:900;line-height:1">{title}</h1>
+<p style="margin:22px 0 0;font-size:30px">{offer}{code_line}</p>
+<span style="margin-top:56px;align-self:flex-start;padding:24px 64px;background:{accent};color:#111;border-radius:20px;font-size:34px;font-weight:700">Shop now ›</span>
+</div></div></div>
+<div><p style="margin:0 0 14px;font:600 16px sans-serif;color:#bbb">Mobile · 560×750</p>
+<div id="banner-mobile" style="position:relative;width:560px;height:750px;overflow:hidden;background:{bg};font-family:sans-serif;color:#fff">
+<div style="height:310px;background:linear-gradient(135deg,{accent},{bg})"></div>
+<div style="padding:24px;text-align:center"><h1 style="margin:0;font-size:56px;font-weight:900">{title}</h1>
+<p style="font-size:22px">{offer}{code_line}</p></div></div></div>
+</div></body></html>"""
