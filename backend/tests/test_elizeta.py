@@ -12,6 +12,7 @@ from sqlalchemy import select
 
 from app.analytics.product_tags import Sales, compute_tags
 from app.connectors import elizeta as ez
+from app.core.errors import ValidationError
 from app.models import Product, SalesReportRow
 from app.services import elizeta as svc
 
@@ -64,7 +65,7 @@ def test_key_is_write_only_and_hinted(db, store):
     assert KEY not in repr(d)
     svc.configure(db, store, shop_id="26", api_key="")  # blank keeps the key
     assert svc.describe(svc.get(db, store.id))["key_hint"] == "••••Pi7g"
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError, match="shop id is a number"):
         svc.configure(db, store, shop_id="abc", api_key=None)
 
 
