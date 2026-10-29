@@ -67,3 +67,13 @@ def test_calendar_level_column():
     assert parse_level("https://www.northfashionstore.com/collections/best-sellers") == ("collection", ["Best Sellers"])
     assert parse_level("https://x.com/products/spooky-ebook?variant=1") == ("product", ["Spooky Ebook"])
     assert parse_level("-") == (None, [])
+
+
+def test_calendar_codes_and_status_from_real_cells():
+    """Cells as written in the marketing calendar's Events sheet (MAU, Oct–Dec 2026)."""
+    from app.services.offers_import import CALENDAR_STATUS, parse_codes
+
+    assert parse_codes("SPOOKLAB (new) | OWLPASS (existing 15/20%)") == ["SPOOKLAB", "OWLPASS"]
+    assert parse_codes("HEADSTART (new) | ROBINPASS (existing 22%)") == ["HEADSTART", "ROBINPASS"]
+    assert parse_codes("N/A (automatic)") == [] and parse_codes("ONESTAR") == ["ONESTAR"]
+    assert CALENDAR_STATUS.get("live") == "live" and "sent" not in CALENDAR_STATUS and "off" not in CALENDAR_STATUS

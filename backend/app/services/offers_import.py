@@ -51,7 +51,25 @@ EVENT_COLUMNS = {
     "event description": "description", "description": "description", "days": "duration",
     "collection": "collection", "level": "collection", "article": "articles", "banners message": "banner_message",
     "banner message": "banner_message", "landing page": "landing_page", "activation": "activation",
+    "status": "calendar_status",
 }
+# The calendar's Status column mixes email states (Sent, Off) with offer states. Only the offer
+# states are used; anything else leaves the status to other evidence.
+CALENDAR_STATUS = {"live": "live", "paused": "paused", "cancelled": "cancelled", "canceled": "cancelled",
+                   "scheduled": "scheduled", "completed": "completed", "ended": "completed"}
+CODE_RE = re.compile(r"^[A-Z0-9][A-Z0-9_-]{2,}$")
+
+
+def parse_codes(raw: str) -> list[str]:
+    """Codes from a cell such as "SPOOKLAB (new) | OWLPASS (existing 15/20%)" or "N/A (automatic)".
+    Notes in parentheses are dropped; only code-shaped tokens are kept."""
+    text = re.sub(r"\([^)]*\)", " ", raw or "")
+    out = []
+    for tok in re.split(r"[|,/\n+;]", text):
+        tok = tok.strip().upper()
+        if CODE_RE.match(tok) and tok not in ("N/A", "NONE", "AUTOMATIC", "AUTO") and tok not in out:
+            out.append(tok)
+    return out
 
 DISPLAY_MAP = {"full displayed": "full_site", "fully displayed": "full_site", "email only": "email_only",
                "content email": "email_only"}
@@ -300,8 +318,7 @@ def _import_events(db, rows, sheet, stores, report: ImportReport, batch, dry_run
         offer_text = strip_decoration(str(g("offer") or "")) or None
         bonus = strip_decoration(str(g("bonus") or "")) or None
         coupon_raw = str(g("coupon") or "").strip()
-        coupons = [c.strip().upper() for c in coupon_raw.replace(" + ", "/").replace(",", "/").replace("\n", "/")
-                   .split("/") if c.strip() and c.strip() not in ("-", "—")]
+        coupons = parse_codes(coupon_raw)
 
         thr_raw = str(g("threshold") or "").strip()
         thr_amount = None
@@ -354,8 +371,11 @@ def _import_events(db, rows, sheet, stores, report: ImportReport, batch, dry_run
         # Offer status is set only where the workbook gives evidence; dates alone never make an
         # offer Live or Completed. Everything else is left "not set" for the user to confirm.
         has_results = bool(offer_orders) or bool(sales)
+        cal_status = CALENDAR_STATUS.get(norm_key(strip_decoration(str(g("calendar_status") or ""))))
         if notes and "not launched" in notes.lower():
             status, status_note = "cancelled", "Workbook note says it was not launched"
+        elif cal_status:
+            status, status_note = cal_status, f"Calendar status: {strip_decoration(str(g('calendar_status')))}"
         elif not start and not offer_text:
             status, status_note = None, None
             issues.append("no dates or offer recorded (placeholder row)")
