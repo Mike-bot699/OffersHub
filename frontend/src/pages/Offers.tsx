@@ -197,7 +197,7 @@ function BannerEditor({ ev }: { ev: Ev }) {
         <input type="file" accept=".html,.htm,image/png,image/jpeg,image/webp" onChange={(e) => e.target.files?.[0] && upload.mutate(e.target.files[0])} />
         {ev.has_banner && <button onClick={() => remove.mutate()}>Remove</button>}
       </div>
-      <small className="muted">HTML design file (the element with id "banner-desktop" is used for the preview) or an image, up to 3 MB. Shown as a preview when the offer is Full-Displayed.</small>
+      <small className="muted">HTML design file (the element with id "banner-desktop" is used for the preview) or an image, up to 3 MB. Shown as a preview in the Offers Plan and Offers DB.</small>
       <ErrorBox error={upload.error ?? remove.error} />
     </>
   )

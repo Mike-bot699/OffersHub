@@ -297,7 +297,7 @@ export function PlanTable({ rows, onOpen, showResults = false, empty }: { rows: 
                 <td className="clip" title={e.articles ?? ''}><small>{e.articles ?? '—'}</small></td>
                 <td style={{ whiteSpace: 'nowrap' }}>
                   {e.display ? <small>{DISPLAY_TEXT[e.display] ?? label(e.display)}</small> : <span className="muted">—</span>}
-                  {e.display === 'full_site' && e.has_banner && <div style={{ marginTop: 4 }}><BannerThumb eventId={e.id} name={e.name} /></div>}
+                  {e.has_banner && <div style={{ marginTop: 4 }}><BannerThumb eventId={e.id} name={e.name} /></div>}
                 </td>
                 {showResults && <>
                   <td className="num">{num(e.offer_orders)}</td>
