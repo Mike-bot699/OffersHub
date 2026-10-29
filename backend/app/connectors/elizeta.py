@@ -129,6 +129,8 @@ class ElizetaClient:
                                                 "currency": currency, "shopid": self.shop_id})
         raw = d if isinstance(d, list) else next((d[k] for k in ("sold", "products", "rows", "data")
                                                   if isinstance(d.get(k), list)), [])
+        # Field names only (never values), so a sync can say what the report actually contained.
+        self.last_sales_fields = sorted({k for r in raw[:50] if isinstance(r, dict) for k in r})
         out = []
         for r in raw:
             title = str(_first(r, "title", "name", "product_title") or "").strip()

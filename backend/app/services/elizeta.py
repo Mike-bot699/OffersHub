@@ -179,7 +179,13 @@ def sync(db: Session, store: Store, *, trigger: str = "manual", today: date | No
             st.last_success_at = utcnow()
             st.last_status = SyncStatus.SUCCESS
             st.record_count = len(rows)
-            job.stats = {**job.stats, "sales": {"rows": len(rows), "matched": matched, "tags": tagged}}
+            units_total = sum(r.units for r in rows)
+            fields = getattr(c, "last_sales_fields", [])
+            job.stats = {**job.stats, "sales": {"rows": len(rows), "matched": matched, "units_total": units_total,
+                                                "fields": fields, "tags": tagged}}
+            if rows and units_total == 0:
+                job.warnings = [*job.warnings, "The sales report has rows but no units in the fields read "
+                                f"(sold, sales, units, quantity, qty). Fields in the report: {', '.join(fields)}."]
             db.commit()
         except AppError as exc:
             db.rollback()
