@@ -119,3 +119,19 @@ def test_settings_api_never_returns_the_key(db, store, platform):
     assert body["code"] == "MAU" and body["product_host"] == "www.thelittlelearnerstoys.com"
     assert c.post(f"/api/stores/{store.id}/elizeta/verify").json()["elizeta"]["status"] == "connected"
     assert KEY not in str(c.get("/api/audit").json())
+
+
+def test_platform_generated_secret_is_accepted(monkeypatch):
+    from app.core import security
+    from app.core.config import get_settings
+
+    monkeypatch.setenv("EGI_SECRET_KEY", "Zx9+Qb/3kLm0pRt7uVw2yA4cE6gI8jKoNsXq1Z+5/AB=")  # not a Fernet key
+    get_settings.cache_clear()
+    try:
+        token = security.encrypt_secrets({"api_key": KEY})
+        assert security.decrypt_secrets(token)["api_key"] == KEY and KEY not in token
+        monkeypatch.setenv("EGI_SECRET_KEY", "short")
+        get_settings.cache_clear()
+        assert not security.encryption_available()
+    finally:
+        get_settings.cache_clear()

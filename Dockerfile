@@ -15,4 +15,4 @@ COPY backend/ ./
 COPY --from=ui /ui/dist /app/frontend/dist
 ENV EGI_ENV=hosted EGI_FRONTEND_DIST=/app/frontend/dist
 EXPOSE 8000
-CMD ["sh", "-c", "uv run --no-dev python -m app.cli migrate && uv run --no-dev uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "uv run --no-dev python -m app.cli migrate && uv run --no-dev uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips=*"]

@@ -5,6 +5,8 @@ key supplied through the environment (`EGI_SECRET_KEY`). The key never lives in 
 database, so a copied database file alone does not expose store credentials.
 """
 
+import base64
+import hashlib
 import json
 import re
 from typing import Any
@@ -26,10 +28,15 @@ def _fernet() -> Fernet:
             "EGI_SECRET_KEY is not set. Generate one with `uv run python -m app.cli generate-key` "
             "and add it to backend/.env before storing integration credentials."
         )
+    raw = key.get_secret_value()
     try:
-        return Fernet(key.get_secret_value().encode())
-    except (ValueError, TypeError) as exc:
-        raise ConfigurationError("EGI_SECRET_KEY is not a valid Fernet key.") from exc
+        return Fernet(raw.encode())
+    except (ValueError, TypeError):
+        # Hosting platforms generate random secrets in their own format: derive a Fernet key
+        # from any secret of at least 32 characters instead of rejecting it.
+        if len(raw) < 32:
+            raise ConfigurationError("EGI_SECRET_KEY must be a Fernet key or a random secret of 32+ characters.") from None
+        return Fernet(base64.urlsafe_b64encode(hashlib.sha256(raw.encode()).digest()))
 
 
 def encryption_available() -> bool:
