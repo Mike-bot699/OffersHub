@@ -9,7 +9,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -52,6 +52,15 @@ class Settings(BaseSettings):
 
     # Built frontend served by the backend in hosted mode.
     frontend_dist: Path = BACKEND_DIR.parent / "frontend" / "dist"
+
+    @field_validator("database_url")
+    @classmethod
+    def _driver(cls, v: str) -> str:
+        # Neon, Supabase and Render give "postgres(ql)://..." URLs; use the installed psycopg 3 driver.
+        for prefix in ("postgres://", "postgresql://"):
+            if v.startswith(prefix):
+                return "postgresql+psycopg://" + v[len(prefix):]
+        return v
 
     @property
     def is_sqlite(self) -> bool:
