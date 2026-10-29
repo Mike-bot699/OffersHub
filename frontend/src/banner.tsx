@@ -2,6 +2,7 @@
 // with scripts disabled (no allow-scripts, no allow-same-origin), so a design file can never run
 // code inside the application. External images and fonts referenced by the file still load.
 import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from './api'
 import { Drawer, Loading } from './ui'
@@ -79,45 +80,48 @@ export function BannerThumb({ eventId, name }: { eventId: number; name: string }
 
 export function BannerDrawer({ eventId, name, onClose }: { eventId: number; name: string; onClose: () => void }) {
   const q = useBanner(eventId)
-  const [full, setFull] = useState(false)
+  const [open, setOpen] = useState<Format | null>(null)
   const b = q.data
   const fmts = b?.kind === 'html' && b.content ? formats(b.content) : []
+  const avail = Math.min(716, window.innerWidth - 48)
+  // Wide formats take the full width, mid-size ones share a row, small labels sit three to a row.
+  const sizeOf = (f: Format) => (f.w >= 1000 ? avail : f.w >= 400 ? (avail - 16) / 2 : Math.min(f.w, (avail - 32) / 3))
   return (
-    <Drawer open onClose={onClose} title={<div><h2>{name}</h2><small className="muted">Banner design{b?.filename ? ` · ${b.filename}` : ''}</small></div>}>
-      {q.isLoading || !b ? <Loading /> : !b.content ? <small>No banner uploaded.</small> : (
-        <>
-          <div className="section-title" style={{ marginTop: 0 }}>Desktop</div>
-          <button className="banner-open" title="View full screen" onClick={() => setFull(true)}>
-            <BannerView banner={b} width={Math.min(640, window.innerWidth - 64)} />
-          </button>
-          <div className="row mt">
-            <button className="primary" onClick={() => setFull(true)}>{fmts.length > 1 ? `View all ${fmts.length} formats full screen` : 'View full screen'}</button>
-          </div>
-          {fmts.length > 1 && <small className="muted" style={{ display: 'block', marginTop: 6 }}>Formats in the file: {fmts.map((f) => f.label).join(' · ')}</small>}
-          <small className="muted" style={{ display: 'block', marginTop: 8 }}>Shown in a sandbox with scripts disabled. Images referenced with relative paths in the file cannot be shown here.</small>
-          {full && <FullScreen banner={b} fmts={fmts} name={name} onClose={() => setFull(false)} />}
-        </>
+    <Drawer open onClose={onClose} title={<div><h2>{name}</h2><small className="muted">Banner design{b?.filename ? ` · ${b.filename}` : ''} · click a format to enlarge</small></div>}>
+      {q.isLoading || !b ? <Loading /> : !b.content ? <small>No banner uploaded.</small> : b.kind === 'image' ? (
+        <button className="banner-open" onClick={() => setOpen({ label: 'Banner', doc: '', w: 0, h: 0 })}><BannerView banner={b} width={avail} /></button>
+      ) : (
+        <div className="banner-grid">
+          {(fmts.length ? fmts : [{ label: 'Banner', ...desktopDoc(b.content) }]).map((f) => (
+            <button key={f.label} className="banner-open" title="Enlarge" onClick={() => setOpen(f)} style={{ width: sizeOf(f) }}>
+              <div className="banner-label">{f.label}</div>
+              <Scaled doc={f.doc} w={f.w} h={f.h} width={sizeOf(f)} />
+            </button>))}
+        </div>
       )}
+      {b?.content && <small className="muted" style={{ display: 'block', marginTop: 10 }}>Shown in a sandbox with scripts disabled. Images referenced with relative paths in the file cannot be shown here.</small>}
+      {open && b && <Popup banner={b} f={open} onClose={() => setOpen(null)} />}
     </Drawer>
   )
 }
 
-/** Each format as large as the window allows (never above its real size), one under the other. */
-function FullScreen({ banner, fmts, name, onClose }: { banner: Banner; fmts: Format[]; name: string; onClose: () => void }) {
-  const avail = window.innerWidth - 96
-  return (
-    <div className="banner-full" role="dialog" aria-modal="true" onClick={onClose}>
-      <div className="banner-full-head" onClick={(e) => e.stopPropagation()}>
-        <strong>{name}</strong><button onClick={onClose} aria-label="Close">✕ Close</button>
+/** One format, as large as the window allows (never above its real size), above everything else. */
+function Popup({ banner, f, onClose }: { banner: Banner; f: Format; onClose: () => void }) {
+  const maxW = window.innerWidth - 80
+  const maxH = window.innerHeight - 140
+  const body = banner.kind === 'image'
+    ? <img src={banner.content!} alt="Banner" style={{ maxWidth: maxW, maxHeight: maxH, display: 'block' }} />
+    : <Scaled doc={f.doc} w={f.w} h={f.h} width={f.w * Math.min(1, maxW / f.w, maxH / f.h)} />
+  return createPortal(
+    <div className="banner-popup" role="dialog" aria-modal="true" onClick={onClose}>
+      <div className="banner-popup-inner" onClick={(e) => e.stopPropagation()}>
+        <div className="row" style={{ justifyContent: 'space-between', marginBottom: 10 }}>
+          <strong style={{ color: '#fff' }}>{f.label}</strong>
+          <button onClick={onClose}>✕ Close</button>
+        </div>
+        {body}
       </div>
-      <div className="banner-full-body" onClick={(e) => e.stopPropagation()}>
-        {banner.kind === 'image' ? <img src={banner.content!} alt="Banner" style={{ maxWidth: avail, display: 'block' }} />
-          : (fmts.length ? fmts : [{ label: 'Banner', ...desktopDoc(banner.content!) }]).map((f) => (
-            <div key={f.label} className="banner-full-item">
-              <div className="banner-full-label">{f.label}</div>
-              <Scaled doc={f.doc} w={f.w} h={f.h} width={Math.min(f.w, avail)} />
-            </div>))}
-      </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

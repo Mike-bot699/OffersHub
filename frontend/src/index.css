@@ -210,8 +210,7 @@ ul.tight li { margin: 2px 0; }
 .store-letter.big { width: 40px; height: 40px; border-radius: 8px; font-size: 18px; }
 
 .banner-open { padding: 0; border: 0; background: none; cursor: zoom-in; display: block; }
-.banner-full { position: fixed; inset: 0; z-index: 100; background: rgb(15 15 15 / 0.92); overflow: auto; }
-.banner-full-head { position: sticky; top: 0; display: flex; justify-content: space-between; align-items: center; padding: 12px 48px; background: #111; color: #fff; z-index: 1; }
-.banner-full-head button { background: #fff; color: #111; }
-.banner-full-body { padding: 24px 48px 64px; display: grid; gap: 32px; justify-items: start; }
-.banner-full-label { color: #bbb; font-size: 13px; font-weight: 600; margin-bottom: 8px; letter-spacing: .03em; }
+.banner-grid { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+.banner-label { font-size: 11.5px; font-weight: 600; color: var(--text-3); margin-bottom: 4px; text-align: left; }
+.banner-popup { position: fixed; inset: 0; z-index: 1000; background: rgb(10 10 10 / 0.85); display: grid; place-items: center; padding: 24px; }
+.banner-popup-inner { max-width: 100%; }
