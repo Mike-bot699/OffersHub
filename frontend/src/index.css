@@ -208,3 +208,10 @@ ul.tight li { margin: 2px 0; }
 .tag-add { font-size: 11.5px; padding: 1px 6px; }
 .store-letter { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--border); font-weight: 700; }
 .store-letter.big { width: 40px; height: 40px; border-radius: 8px; font-size: 18px; }
+
+.banner-open { padding: 0; border: 0; background: none; cursor: zoom-in; display: block; }
+.banner-full { position: fixed; inset: 0; z-index: 100; background: rgb(15 15 15 / 0.92); overflow: auto; }
+.banner-full-head { position: sticky; top: 0; display: flex; justify-content: space-between; align-items: center; padding: 12px 48px; background: #111; color: #fff; z-index: 1; }
+.banner-full-head button { background: #fff; color: #111; }
+.banner-full-body { padding: 24px 48px 64px; display: grid; gap: 32px; justify-items: start; }
+.banner-full-label { color: #bbb; font-size: 13px; font-weight: 600; margin-bottom: 8px; letter-spacing: .03em; }
