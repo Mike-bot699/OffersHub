@@ -22,13 +22,13 @@ async def lifespan(_app: FastAPI):
     configure_logging(s.log_level, s.log_json)
     if s.env == "hosted" and s.auth_mode == "none":
         raise RuntimeError("Refusing to start a hosted deployment without authentication (set EGI_AUTH_MODE).")
-    if s.scheduler_enabled and s.env != "test":
+    if s.scheduler_enabled and s.env != "test" and not s.serverless:
         from app.services import scheduler
 
         scheduler.start()
     log.info("OffersHub started (env=%s, db=%s)", s.env, "sqlite" if s.is_sqlite else "postgres")
     yield
-    if s.scheduler_enabled and s.env != "test":
+    if s.scheduler_enabled and s.env != "test" and not s.serverless:
         from app.services import scheduler
 
         scheduler.shutdown()
@@ -36,6 +36,8 @@ async def lifespan(_app: FastAPI):
 
 def create_app() -> FastAPI:
     s = get_settings()
+    if s.env == "hosted" and s.auth_mode == "none":
+        raise RuntimeError("Refusing to start a hosted deployment without authentication (set EGI_AUTH_MODE).")
     app = FastAPI(title="OffersHub", version=routes_admin.VERSION, lifespan=lifespan,
                   docs_url="/api/docs", openapi_url="/api/openapi.json")
     app.add_middleware(CORSMiddleware, allow_origins=s.cors_origins, allow_credentials=True,

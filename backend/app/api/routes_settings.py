@@ -5,13 +5,13 @@ The Eli Z API key is write-only: responses carry only its last four characters."
 import re
 import threading
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.common import DB, get_store
-from app.core.errors import ConflictError, ValidationError
+from app.core.errors import AuthError, ConflictError, ValidationError
 from app.db.session import session_scope
 from app.models import Product, Store
 from app.services import elizeta as ez_svc
@@ -113,8 +113,34 @@ def sync_elizeta(store_id: int, db: Session = DB):
     integ = ez_svc.get(db, s.id)
     if not integ or not integ.credentials_encrypted:
         raise ValidationError("Save the Eli Z shop id and API key first.")
+    from app.core.config import get_settings
+
+    if get_settings().serverless:  # no background threads on Vercel: run it within the request
+        job = ez_svc.sync(db, s)
+        return {"started": True, "finished": True, "status": job.status, "stats": job.stats}
     threading.Thread(target=_bg_sync, args=(s.id,), daemon=True).start()
     return {"started": True}
+
+
+@router.get("/cron/sync")
+def cron_sync(request: Request, db: Session = DB):
+    """Daily sync of every Eli Z store, called by Vercel Cron with `Authorization: Bearer <CRON_SECRET>`."""
+    import hmac
+    import os
+
+    secret = os.environ.get("CRON_SECRET")
+    if not secret or not hmac.compare_digest(request.headers.get("authorization", ""), f"Bearer {secret}"):
+        raise AuthError("Not authorised.")
+    from app.models import Integration
+
+    out = {}
+    for integ in db.scalars(select(Integration).where(Integration.provider == "elizeta",
+                                                      Integration.credentials_encrypted.is_not(None),
+                                                      Integration.sync_enabled.is_(True))):
+        store = db.get(Store, integ.store_id)
+        if store and not store.is_demo:
+            out[store.code] = ez_svc.sync(db, store, trigger="scheduled").status
+    return {"synced": out}
 
 
 @router.post("/stores/{store_id}/elizeta/disconnect")

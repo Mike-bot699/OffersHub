@@ -31,6 +31,12 @@ def get_engine() -> Engine:
 
                 Path(path).parent.mkdir(parents=True, exist_ok=True)
             kwargs["connect_args"] = {"check_same_thread": False}
+        elif settings.serverless:
+            from sqlalchemy.pool import NullPool
+
+            kwargs["poolclass"] = NullPool  # a function instance must not hold connections between requests
+        else:
+            kwargs["pool_pre_ping"] = True
         _engine = create_engine(settings.database_url, **kwargs)
         if settings.is_sqlite:
             event.listen(_engine, "connect", _sqlite_pragmas)

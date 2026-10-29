@@ -9,7 +9,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -25,7 +25,8 @@ class Settings(BaseSettings):
 
     env: Literal["local", "hosted", "test"] = "local"
     # SQLite by default for local use; set a postgresql+psycopg:// URL when hosted.
-    database_url: str = Field(default_factory=lambda: f"sqlite:///{BACKEND_DIR / 'data' / 'egi.db'}")
+    database_url: str = Field(default_factory=lambda: f"sqlite:///{BACKEND_DIR / 'data' / 'egi.db'}",
+                              validation_alias=AliasChoices("EGI_DATABASE_URL", "DATABASE_URL"))
 
     # Fernet key used to encrypt integration credentials at rest.
     # Generate with: uv run python -m app.cli generate-key
@@ -61,6 +62,13 @@ class Settings(BaseSettings):
             if v.startswith(prefix):
                 return "postgresql+psycopg://" + v[len(prefix):]
         return v
+
+    @property
+    def serverless(self) -> bool:
+        """Running as short-lived functions (Vercel): no background threads or in-process scheduler."""
+        import os
+
+        return bool(os.environ.get("VERCEL"))
 
     @property
     def is_sqlite(self) -> bool:

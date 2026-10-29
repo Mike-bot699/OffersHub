@@ -18,7 +18,7 @@ from app.core.config import get_settings
 from app.core.errors import AuthError, ConfigurationError
 
 COOKIE = "egi_session"
-OPEN_PATHS = {"/api/health", "/api/auth/login", "/api/auth/status"}
+OPEN_PATHS = {"/api/health", "/api/auth/login", "/api/auth/status", "/api/cron/sync"}  # cron checks its own secret
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 

@@ -55,7 +55,7 @@ function StoreCard({ s }: { s: StoreSettings }) {
   })
   const icon = useMutation({ mutationFn: (logo: string) => api.put(`/stores/${s.id}/settings`, { logo }), onSuccess: done })
   const verify = useMutation({ mutationFn: () => api.post(`/stores/${s.id}/elizeta/verify`), onSettled: done })
-  const sync = useMutation({ mutationFn: () => api.post(`/stores/${s.id}/elizeta/sync`), onSuccess: () => setTimeout(() => { done(); qc.invalidateQueries({ queryKey: ['catalog'] }) }, 1500) })
+  const sync = useMutation({ mutationFn: () => api.post<{ finished?: boolean; status?: string; stats?: Record<string, Record<string, unknown>> }>(`/stores/${s.id}/elizeta/sync`), onSuccess: () => setTimeout(() => { done(); qc.invalidateQueries({ queryKey: ['catalog'] }) }, 1500) })
   const disconnect = useMutation({ mutationFn: () => api.post(`/stores/${s.id}/elizeta/disconnect`), onSuccess: done })
   const ez = s.elizeta
   const pickIcon = (file: File) => { const r = new FileReader(); r.onload = () => icon.mutate(String(r.result)); r.readAsDataURL(file) }
@@ -88,7 +88,11 @@ function StoreCard({ s }: { s: StoreSettings }) {
         {ez.has_key && <button className="danger" onClick={() => confirm(`Delete the saved Eli Z API key of ${s.code}?`) && disconnect.mutate()}>Disconnect</button>}
       </div>
       <ErrorBox error={save.error ?? icon.error ?? verify.error ?? sync.error ?? disconnect.error} />
-      {sync.isSuccess && <div className="notice info mt"><small>Sync started. Products and tags update in a minute.</small></div>}
+      {sync.data && (sync.data.finished ? (
+        <div className={`notice ${sync.data.status === 'success' ? 'info' : 'critical'} mt`}><small>
+          Sync {sync.data.status}. {Object.entries(sync.data.stats ?? {}).map(([k, v]) => `${k}: ${v.error ? `error — ${String(v.error)}` : Object.entries(v).map(([a, b]) => `${a} ${typeof b === 'object' ? JSON.stringify(b) : b}`).join(', ')}`).join(' · ')}
+        </small></div>
+      ) : <div className="notice info mt"><small>Sync started. Products and tags update in a minute.</small></div>)}
       {ez.last_error && <div className="error-box mt">{ez.last_error}</div>}
       <small className="muted" style={{ display: 'block', marginTop: 8 }}>
         Last verified: {ez.last_verified_at ? dateTime(ez.last_verified_at) : 'never'}. Eli Z provides: catalog and product sales.

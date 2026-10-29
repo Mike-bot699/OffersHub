@@ -56,6 +56,15 @@ only the backend — it serves the built UI from `frontend/dist`.
 5. **Analyse**: Opportunities → *Analyse*. Open any item to see evidence, assumptions, missing data,
    risks and the recommended test; *Plan as experiment* to start the lifecycle.
 
+## Online on Vercel + Neon (free)
+
+1. Neon: create a project and copy its connection string (`postgresql://…sslmode=require`).
+2. Vercel: *Add New → Project* → import the GitHub repository (settings come from `vercel.json`).
+   Environment variables: `EGI_DATABASE_URL` (Neon string; `DATABASE_URL` from the Neon integration also works),
+   `EGI_ENV=hosted`, `EGI_AUTH_MODE=password`, `EGI_AUTH_PASSWORD`, `EGI_SECRET_KEY` (any random text of 32+
+   characters — it encrypts the Eli Z keys, keep it) and optionally `CRON_SECRET` for the daily sync at 04:17 UTC.
+3. Deploy. Migrations run automatically on the first request.
+
 ## Configuration
 
 All configuration is environment-based (`backend/.env` or real environment variables, prefix `EGI_`).
