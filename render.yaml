@@ -5,6 +5,7 @@ services:
     name: offershub
     runtime: docker
     plan: free
+    region: ohio           # same region as the Neon database (AWS US East 2)
     healthCheckPath: /api/health
     envVars:
       - key: EGI_ENV
