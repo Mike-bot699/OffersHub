@@ -77,3 +77,12 @@ def test_calendar_codes_and_status_from_real_cells():
     assert parse_codes("HEADSTART (new) | ROBINPASS (existing 22%)") == ["HEADSTART", "ROBINPASS"]
     assert parse_codes("N/A (automatic)") == [] and parse_codes("ONESTAR") == ["ONESTAR"]
     assert CALENDAR_STATUS.get("live") == "live" and "sent" not in CALENDAR_STATUS and "off" not in CALENDAR_STATUS
+
+
+def test_level_targets_one_per_line_with_catalog_names():
+    cell = ("https://www.thelittlelearnerstoys.com/products/photo-reel-viewfinder\n"
+            "https://www.thelittlelearnerstoys.com/products/tiny-biker-anti-tip-light-sound-motorcycle\n"
+            "Wishcard and Wrapping Paper")
+    level, targets = parse_level(cell, {"tiny-biker-anti-tip-light-sound-motorcycle": "Tiny Biker Anti-Tip Light & Sound Motorcycle"})
+    assert level == "product"
+    assert targets == ["Photo Reel Viewfinder", "Tiny Biker Anti-Tip Light & Sound Motorcycle", "Wishcard and Wrapping Paper"]

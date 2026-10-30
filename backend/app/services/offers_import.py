@@ -24,8 +24,8 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import ConflictError, ValidationError
 from app.db.base import utcnow
-from app.models import Coupon, DataNote, ImportBatch, Offer, PromoEvent, Store
-from app.models.enums import DataSource, VerificationStatus
+from app.models import Coupon, DataNote, ImportBatch, Offer, Product, PromoEvent, Store
+from app.models.enums import DataSource, OfferType, VerificationStatus
 from app.offers.classify import classify_offer
 from app.offers.status import set_status
 from app.services.audit import audit
@@ -49,13 +49,13 @@ EVENT_COLUMNS = {
     "order per email": "orders_per_email", "bonus give away": "bonus_giveaway", "notes": "notes",
     # Marketing calendar (Events sheet) columns
     "event description": "description", "description": "description", "days": "duration",
-    "collection": "collection", "level": "collection", "article": "articles", "banners message": "banner_message",
+    "collection": "collection", "products": "collection", "targets": "collection", "level": "level", "article": "articles", "banners message": "banner_message",
     "banner message": "banner_message", "landing page": "landing_page", "activation": "activation",
     "status": "calendar_status",
 }
 # The calendar's Status column mixes email states (Sent, Off) with offer states. Only the offer
 # states are used; anything else leaves the status to other evidence.
-CALENDAR_STATUS = {"live": "live", "paused": "paused", "cancelled": "cancelled", "canceled": "cancelled",
+CALENDAR_STATUS = {"live": "live", "paused": "paused", "in progress": "in_progress", "cancelled": "cancelled", "canceled": "cancelled",
                    "scheduled": "scheduled", "completed": "completed", "ended": "completed"}
 CODE_RE = re.compile(r"^[A-Z0-9][A-Z0-9_-]{2,}$")
 
@@ -249,23 +249,29 @@ def _resolve_stores(db, sheets, events_sheet, codes_sheet, report, create_missin
     return out
 
 
-def parse_level(raw) -> tuple[str | None, list[str]]:
+def parse_level(raw, product_titles: dict[str, str] | None = None) -> tuple[str | None, list[str]]:
     """Where an offer applies, from the calendar's Collection column.
-    Storewide / All -> store; a /products/ URL -> that product; anything else -> collection(s)."""
+    Storewide / All -> store; a /products/ URL -> that product (named as in the store's catalog when
+    the handle is known); anything else -> collection(s)."""
     text = strip_decoration(str(raw or "")).strip()
     if not text or text in ("-", "—"):
         return None, []
     low = text.lower()
     if low in ("all", "store", "whole store") or low.startswith(("storewide", "sitewide")):
         return "store", []
-    parts = [p.strip() for p in re.split(r"[\n,]+", text) if p.strip()]
+    # Split the raw cell (one target per line or comma) before cleaning, which joins lines.
+    parts = [strip_decoration(p).strip() for p in re.split(r"[\n,]+", str(raw)) if strip_decoration(p).strip()]
     targets, level = [], "collection"
     for part in parts:
         m = re.search(r"/(collections|products)/([^/?#\s]+)", part)
         if m:
+            handle = m.group(2).lower()
             if m.group(1) == "products":
                 level = "product"
-            targets.append(m.group(2).replace("-", " ").title())
+                if product_titles and handle in product_titles:
+                    targets.append(product_titles[handle])
+                    continue
+            targets.append(handle.replace("-", " ").title())
         else:
             targets.append(part)
     return level, targets
@@ -287,6 +293,7 @@ def _import_events(db, rows, sheet, stores, report: ImportReport, batch, dry_run
     if missing:
         raise ValidationError(f"Events sheet is missing expected columns: {', '.join(missing)}")
     offers_cache: dict[str, Offer] = {}
+    titles_cache: dict[int | None, dict[str, str]] = {}
     sales_seen: dict[float, tuple[int, str, str]] = {}
 
     for rn, row in enumerate(rows[1:], start=2):
@@ -395,7 +402,15 @@ def _import_events(db, rows, sheet, stores, report: ImportReport, batch, dry_run
         display = next((v for k, v in DISPLAY_MAP.items() if k in display_raw), None) if display_raw else None
         channels = ["email"] if display == "email_only" else (["site", "email"] if display == "full_site" else [])
 
-        level, level_targets = parse_level(g("collection"))
+        if store.id not in titles_cache:
+            titles_cache[store.id] = {p.handle.lower(): p.title for p in db.scalars(
+                select(Product).where(Product.store_id == store.id, Product.handle.is_not(None)))} if store.id else {}
+        level, level_targets = parse_level(g("collection"), titles_cache[store.id])
+        explicit_level = norm_key(g("level"))
+        if explicit_level in ("store", "all", "storewide"):
+            level, level_targets = "store", []
+        elif explicit_level in ("collection", "product"):
+            level = explicit_level
         landing = str(g("landing_page") or "").strip()
         landing = landing if landing.lower().startswith(("http://", "https://", "www.")) else None
         cls = classify_offer(offer_text, bonus, coupon_raw)
@@ -431,7 +446,9 @@ def _import_events(db, rows, sheet, stores, report: ImportReport, batch, dry_run
         ev.name = name
         ev.offer_id = offer.id if offer else None
         ev.offer_text = offer_text
-        ev.offer_type = cls["offer_type"] if offer_text else None
+        type_raw = norm_key(g("type")).replace(" ", "_")
+        explicit_type = type_raw if type_raw in {t.value for t in OfferType} else None
+        ev.offer_type = explicit_type or (cls["offer_type"] if offer_text else None)
         ev.start_date, ev.end_date = start, end
         if ev.status_source in (None, "import"):  # never overwrite a status a person or the store has set
             if ev.id is None:
@@ -447,7 +464,7 @@ def _import_events(db, rows, sheet, stores, report: ImportReport, batch, dry_run
         ev.bonus = bonus
         if col.get("description") is not None:
             ev.description = strip_decoration(str(g("description") or "")) or None
-        if col.get("collection") is not None:
+        if col.get("collection") is not None or col.get("level") is not None:
             ev.level, ev.level_targets = level, level_targets
         if col.get("landing_page") is not None:
             ev.landing_page = landing
