@@ -129,3 +129,38 @@ class Coupon(TimestampMixin, Base):
     combines_with: Mapped[dict[str, Any]] = mapped_column(default=dict)
     raw: Mapped[dict[str, Any]] = mapped_column(default=dict)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class DiscountReport(Base):
+    """One imported "Sales by discount code" report (Shopify Analytics export or platform API) for a
+    store and period. Re-importing the same store and period replaces it."""
+
+    __tablename__ = "discount_reports"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id", ondelete="CASCADE"), index=True)
+    period_start: Mapped[date] = mapped_column(Date)
+    period_end: Mapped[date] = mapped_column(Date)
+    source: Mapped[str] = mapped_column(String(24))  # shopify_export | elizeta
+    filename: Mapped[str | None] = mapped_column(String(255))
+    file_sha256: Mapped[str | None] = mapped_column(String(64))
+    by_day: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class DiscountReportRow(Base):
+    __tablename__ = "discount_report_rows"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    report_id: Mapped[int] = mapped_column(ForeignKey("discount_reports.id", ondelete="CASCADE"), index=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id", ondelete="CASCADE"), index=True)
+    day: Mapped[date | None] = mapped_column(Date)  # when the report is split by day
+    name: Mapped[str] = mapped_column(String(300))  # code, or automatic discount title
+    method: Mapped[str | None] = mapped_column(String(24))  # discount_code | automatic
+    discount_type: Mapped[str | None] = mapped_column(String(24))
+    discount_class: Mapped[str | None] = mapped_column(String(24))  # order | product | shipping
+    orders: Mapped[int] = mapped_column(Integer, default=0)
+    discounts: Mapped[float] = mapped_column(Money, default=0.0)  # positive amount
+    gross_sales: Mapped[float | None] = mapped_column(Money)
+    reversals: Mapped[float | None] = mapped_column(Money)
+    net_sales: Mapped[float | None] = mapped_column(Money)

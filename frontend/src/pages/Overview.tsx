@@ -4,6 +4,7 @@ import { api, qs } from '../api'
 import { date, money, num, pct } from '../format'
 import { useApp } from '../state'
 import { Card, DemoBadge, Empty, ErrorBox, Kpi, Loading, PageHead, Source } from '../ui'
+import type { DiscountSummary } from './DiscountReport'
 
 type StoreOverview = {
   store_id: number; store_code: string; store_name: string; currency: string; is_demo: boolean; logo: string | null
@@ -18,6 +19,7 @@ type StoreOverview = {
   }
   top_codes: { code: string; orders: number; order_share: number | null; net_sales: number; discounts: number; aov: number | null }[]
   orders_missing: string | null
+  discount_report: DiscountSummary | null
 }
 
 export default function Overview() {
@@ -35,6 +37,8 @@ export default function Overview() {
 function StoreView({ o }: { o: StoreOverview }) {
   const k = o.kpis
   const cur = o.currency
+  const dr = o.discount_report
+  if (!k && dr?.report) return <FromReport o={o} dr={dr} />
   return (
     <>
       <div className="kpis">
@@ -70,6 +74,48 @@ function StoreView({ o }: { o: StoreOverview }) {
               </tbody>
             </table>)}
           <Source>Orders that used a code are not all caused by it.</Source>
+        </Card>
+      </div>
+    </>
+  )
+}
+
+/** No order data yet: KPIs and top codes from the imported Shopify discount report. */
+function FromReport({ o, dr }: { o: StoreOverview; dr: DiscountSummary }) {
+  const cur = o.currency
+  const t = dr.totals
+  return (
+    <>
+      <div className="kpis">
+        <Kpi label="Live offers now" value={o.live_offers.length} sub="status Live" />
+        <Kpi label="Offers in the period" value={o.offers_in_period} sub={Object.entries(o.offers_in_period_by_status).map(([s, n]) => `${n} ${s.replace('_', ' ')}`).join(' · ') || '—'} />
+        <Kpi label="Orders with a discount" value={num(t.all.orders)} sub={`${num(t.codes.orders)} with a code · ${num(t.automatic.orders)} automatic`} />
+        <Kpi label="AOV with a code / automatic" value={<span style={{ fontSize: 20 }}>{money(t.codes.aov, cur)} / {money(t.automatic.aov, cur)}</span>} />
+        <Kpi label="Discounts given" value={money(t.all.discounts, cur)} sub={`${pct(t.all.discount_rate)} of discounted orders' gross sales`} />
+        <Kpi label="Net sales with a discount" value={money(t.all.net_sales, cur)} />
+      </div>
+      <div className="notice info mt"><small>
+        Discount figures from the Shopify "Sales by discount code" report <strong>{date(dr.report!.period_start)} → {date(dr.report!.period_end)}</strong>, not from the period selected above.
+        AOV without a discount and the share of orders with a code need the store's total orders, not available from Eli Z yet.
+      </small></div>
+      <div className="grid g2 mt">
+        <Card title="Live offers" extra={<Link to="/offers-plan">Offers Plan →</Link>}>
+          {!o.live_offers.length ? <small>No offer is marked Live. Set the status in the Offers Plan.</small> : (
+            <table><tbody>{o.live_offers.map((e) => (
+              <tr key={e.id}><td style={{ minWidth: 140 }}><strong>{e.name}</strong><div><small className="secondary">{e.offer_text ?? '—'}</small></div>
+                <small className="muted">{date(e.start_date)} → {date(e.end_date)}</small></td>
+                <td className="mono">{e.coupon_codes.join(', ') || <span className="muted">automatic</span>}</td></tr>))}
+            </tbody></table>)}
+        </Card>
+        <Card title="Top 10 discounts used" extra={<Link to="/offers-db">All discounts →</Link>}>
+          <table>
+            <thead><tr><th>Discount</th><th className="num">Orders</th><th className="num">AOV</th><th className="num">Discounts</th></tr></thead>
+            <tbody>{dr.lines.map((l) => (
+              <tr key={l.name}><td className={l.method === 'automatic' ? '' : 'mono'} style={{ maxWidth: 260 }}><small>{l.name}</small>{l.method === 'automatic' && <small className="muted"> · auto</small>}</td>
+                <td className="num">{num(l.orders)}</td><td className="num">{money(l.aov, cur)}</td><td className="num">{money(l.discounts, cur)}</td></tr>))}
+            </tbody>
+          </table>
+          <Source>Orders that used a discount are not all caused by it.</Source>
         </Card>
       </div>
     </>

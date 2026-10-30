@@ -6,6 +6,7 @@ import { useApp } from '../state'
 import { Card, Drawer, Empty, ErrorBox, Field, Loading, PageHead, Source, Status, Tabs } from '../ui'
 import { OFFER_STATUSES, OfferStatusBadge, PlanTable, StatusPanel, TechStatusBadge, type Ev } from '../offerStatus'
 import { BannerView, useBanner } from '../banner'
+import { DiscountCodes } from './DiscountReport'
 
 type Alert = { severity: string; kind: string; title: string; detail: string; store_code: string }
 
@@ -48,10 +49,11 @@ export function OffersDB() {
     <>
       <PageHead title="Offers DB" desc="Every offer that has ended, with its documented results — plus offer templates, coupon codes, what worked and the workbook import." />
       <Tabs value={tab} onChange={setTab} tabs={[
-        { id: 'expired', label: 'Expired offers' }, { id: 'history', label: 'What worked' }, { id: 'coupons', label: 'Coupon codes' },
+        { id: 'expired', label: 'Expired offers' }, { id: 'discounts', label: 'Discount codes' }, { id: 'history', label: 'What worked' }, { id: 'coupons', label: 'Store coupons' },
         { id: 'library', label: 'Offer templates' }, { id: 'import', label: 'Import' },
       ]} />
       {tab === 'expired' && <ExpiredOffers />}
+      {tab === 'discounts' && <DiscountCodes />}
       {tab === 'library' && <Library />}
       {tab === 'coupons' && <Coupons />}
       {tab === 'history' && <History />}

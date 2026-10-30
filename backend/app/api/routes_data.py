@@ -165,6 +165,37 @@ async def import_csv(store_id: int, kind: str, file: UploadFile = File(...), dry
     return out
 
 
+@router.post("/stores/{store_id}/discount-report/import")
+async def import_discount_report_route(store_id: int, file: UploadFile = File(...), dry_run: bool = Form(True),
+                                       start: str | None = Form(None), end: str | None = Form(None), db: Session = DB):
+    from datetime import date as _date
+
+    from app.offers.discount_report import import_discount_report
+
+    store = get_store(db, store_id)
+    content = await _read(file)
+    parse = lambda v: _date.fromisoformat(v) if v else None
+    try:
+        rep = import_discount_report(db, store, content, file.filename or "discounts.jsonl",
+                                     start=parse(start), end=parse(end), dry_run=dry_run)
+    except ValueError as exc:
+        raise ValidationError("Dates must be YYYY-MM-DD.") from exc
+    if not dry_run:
+        db.commit()
+    return asdict(rep)
+
+
+@router.get("/stores/{store_id}/discount-report")
+def discount_report(store_id: int, start: str | None = None, end: str | None = None, db: Session = DB):
+    from datetime import date as _date
+
+    from app.offers.discount_report import latest_report, summarize
+
+    store = get_store(db, store_id)
+    r = latest_report(db, store, _date.fromisoformat(start) if start else None, _date.fromisoformat(end) if end else None)
+    return summarize(db, r) if r else {"report": None}
+
+
 @router.get("/imports")
 def list_imports(store_id: int | None = None, db: Session = DB):
     q = select(ImportBatch).order_by(ImportBatch.created_at.desc()).limit(100)
