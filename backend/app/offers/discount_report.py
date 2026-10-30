@@ -209,6 +209,7 @@ def summarize(db: Session, report: DiscountReport, *, top: int | None = None) ->
         line["codes_in_group"] += 1
         if a["last_day"] and (line["last_day"] is None or a["last_day"] > line["last_day"]):
             line["last_day"] = a["last_day"]
+    coupon_info = store_coupons(db, report.store_id)
     # Which offers use each code (codes are stored upper-case on offers).
     offers: dict[str, list[str]] = defaultdict(list)
     for e in db.scalars(select(PromoEvent).where(PromoEvent.store_id == report.store_id)):
@@ -222,6 +223,7 @@ def summarize(db: Session, report: DiscountReport, *, top: int | None = None) ->
             "discount_rate": _r(ln["discounts"] / ln["gross_sales"], 4) if ln["gross_sales"] else None,
             "last_day": ln["last_day"].isoformat() if ln["last_day"] else None,
             "offers": offers.get(ln["name"].upper(), []),
+            "store": coupon_info.get(ln["name"].upper()),
         })
     codes = [x for x in out_lines if x["method"] != "automatic"]
     auto = [x for x in out_lines if x["method"] == "automatic"]
@@ -241,6 +243,9 @@ def summarize(db: Session, report: DiscountReport, *, top: int | None = None) ->
         "totals": {"all": tot(out_lines), "codes": tot(codes), "automatic": tot(auto)},
         "lines": out_lines[:top] if top else out_lines,
         "excluded_tests": sorted(tests),
+        # Discounts in the store list that the report never saw used (e.g. new or unused codes).
+        "unused": [{"name": v["title"], "store": v, "offers": offers.get(k, [])} for k, v in sorted(coupon_info.items())
+                   if k not in {n.upper() for n in by_name} and "TEST" not in k],
         "grouped": {g: sum(1 for v in grouped.values() if v == g) for g in set(grouped.values())},
         "note": "Orders are counted once per discount used: an order with a code and an automatic discount appears "
                 "in both lines, so the order total across discounts can exceed distinct discounted orders.",
@@ -312,3 +317,19 @@ def offer_results(db: Session, rows: list[dict]) -> None:
                 "late": {"orders": sum(x.orders for x in late), "discounts": round(sum(x.discounts for x in late), 2)}
                 if report.by_day and end else None,
             }
+
+
+def store_coupons(db: Session, store_id: int) -> dict[str, dict]:
+    """Store discounts (Shopify sync or admin export) by upper-case code, newest evidence first."""
+    from app.models import Coupon
+
+    out: dict[str, dict] = {}
+    for c in db.scalars(select(Coupon).where(Coupon.store_id == store_id).order_by(Coupon.last_synced_at.desc())):
+        if c.code in out:
+            continue
+        out[c.code] = {"title": c.title or c.code, "status": c.status, "value": c.value, "value_type": c.value_type,
+                       "min_subtotal": c.min_subtotal, "min_quantity": c.min_quantity,
+                       "starts_at": c.starts_at.isoformat() if c.starts_at else None,
+                       "ends_at": c.ends_at.isoformat() if c.ends_at else None, "usage_count": c.usage_count,
+                       "source": c.source, "checked_at": c.last_synced_at.isoformat() if c.last_synced_at else None}
+    return out

@@ -6,7 +6,7 @@ import { useApp } from '../state'
 import { Card, Drawer, Empty, ErrorBox, Field, Loading, PageHead, Source, Status, Tabs } from '../ui'
 import { OFFER_STATUSES, OfferStatusBadge, PlanTable, StatusPanel, TechStatusBadge, type Ev } from '../offerStatus'
 import { BannerView, useBanner } from '../banner'
-import { DiscountCodes, DiscountImport, type DiscountSummary } from './DiscountReport'
+import { DiscountCodes, DiscountImport, DiscountListImport, type DiscountSummary } from './DiscountReport'
 
 type Alert = { severity: string; kind: string; title: string; detail: string; store_code: string }
 
@@ -308,7 +308,7 @@ type ImportReport = {
 function ImportDiscounts() {
   const { store } = useApp()
   if (!store || store.is_demo) return <Card title="Import discount report (.jsonl / .csv)"><small>Select a store in the top bar to import its Shopify "Sales by discount code" export.</small></Card>
-  return <DiscountImport store={store} />
+  return <><DiscountImport store={store} /><DiscountListImport store={store} /></>
 }
 
 function ImportWorkbook() {

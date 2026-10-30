@@ -60,18 +60,25 @@ def evidence_source(db: Session, store: Store) -> str | None:
     """Which coupon source counts as store evidence, or None when there is none."""
     if store.is_demo:
         return DataSource.DEMO  # synthetic, labelled as such
-    integ = db.scalar(select(Integration).where(Integration.store_id == store.id))
-    if integ is None or integ.status not in (IntegrationStatus.CONNECTED, IntegrationStatus.ERROR):
-        return None
-    st = db.scalar(select(SyncState).where(SyncState.store_id == store.id, SyncState.resource == "discounts"))
-    return DataSource.SHOPIFY if st and st.last_success_at else None
+    integ = db.scalar(select(Integration).where(Integration.store_id == store.id, Integration.provider == "shopify"))
+    if integ is not None and integ.status in (IntegrationStatus.CONNECTED, IntegrationStatus.ERROR):
+        st = db.scalar(select(SyncState).where(SyncState.store_id == store.id, SyncState.resource == "discounts"))
+        if st and st.last_success_at:
+            return DataSource.SHOPIFY
+    # Otherwise the Shopify admin Discounts export, when one was imported.
+    from app.offers.discount_list import SOURCE as EXPORT
+
+    if db.scalar(select(Coupon.id).where(Coupon.store_id == store.id, Coupon.source == EXPORT).limit(1)):
+        return EXPORT
+    return None
 
 
 def technical_status(db: Session, ev: PromoEvent, store: Store, source: str | None) -> tuple[str, str, datetime | None]:
     """(technical status, evidence text, evidence timestamp)."""
     if source is None:
         return TechnicalStatus.UNKNOWN, "Not verified: the store is not connected or its discounts have not been synced.", None
-    label = "demo store data" if source == DataSource.DEMO else "Shopify"
+    export = source == "shopify_export"
+    label = "demo store data" if source == DataSource.DEMO else "the Shopify discounts export" if export else "Shopify"
     q = select(Coupon).where(Coupon.store_id == store.id, Coupon.source == source)
     if ev.shopify_discount_id:
         coupons = db.scalars(q.where(Coupon.source_id == ev.shopify_discount_id)).all()
@@ -85,12 +92,15 @@ def technical_status(db: Session, ev: PromoEvent, store: Store, source: str | No
         return (TechnicalStatus.UNKNOWN, "Not verified: no coupon code or linked store discount to check "
                                          "(automatic offers need a linked discount).", None)
     checked = max((_aware(c.last_synced_at) for c in coupons if c.last_synced_at), default=None)
+    if not coupons and export:
+        # An export can be one page of 50: absence from it proves nothing.
+        return TechnicalStatus.UNKNOWN, f"Not verified: {what} not in {label} (it may be on another page).", None
     if not coupons:
         return TechnicalStatus.UNAVAILABLE, f"{what.capitalize()} not found in {label}.", checked
     states = {c.code: (c.status or "unknown") for c in coupons}
     detail = "; ".join(f"{k}: {v}" for k, v in sorted(states.items()))
     if not ev.shopify_discount_id and missing:
-        detail += f"; not found: {', '.join(missing)}"
+        detail += f"; {'not in export' if export else 'not found'}: {', '.join(missing)}"
     if any(v == "active" for v in states.values()):
         return TechnicalStatus.ACTIVE, f"Active in {label} ({detail}).", checked
     if all(v == "deleted" for v in states.values()):

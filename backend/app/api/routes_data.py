@@ -193,7 +193,22 @@ def discount_report(store_id: int, start: str | None = None, end: str | None = N
 
     store = get_store(db, store_id)
     r = latest_report(db, store, _date.fromisoformat(start) if start else None, _date.fromisoformat(end) if end else None)
-    return summarize(db, r) if r else {"report": None}
+    if r:
+        return summarize(db, r)
+    from app.offers.discount_report import store_coupons
+
+    return {"report": None, "unused": [{"name": v["title"], "store": v, "offers": []} for v in store_coupons(db, store.id).values()]}
+
+
+@router.post("/stores/{store_id}/discount-list/import")
+async def import_discount_list_route(store_id: int, file: UploadFile = File(...), dry_run: bool = Form(True), db: Session = DB):
+    from app.offers.discount_list import import_discount_list
+
+    store = get_store(db, store_id)
+    rep = import_discount_list(db, store, await _read(file), file.filename or "discounts_export.csv", dry_run=dry_run)
+    if not dry_run:
+        db.commit()
+    return asdict(rep)
 
 
 @router.get("/imports")
