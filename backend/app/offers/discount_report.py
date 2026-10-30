@@ -69,6 +69,14 @@ def _rows(content: bytes, filename: str) -> list[dict]:
         raw = list(csv.DictReader(io.StringIO(text)))
     else:
         raise ValidationError("Upload the Shopify export as .jsonl or .csv.")
+    out = map_rows(raw)
+    if not out:
+        raise ValidationError("No discount rows found: the file needs a discount_name (or 'Discount name') column.")
+    return out
+
+
+def map_rows(raw: list[dict]) -> list[dict]:
+    """Rows from any source (file or platform API) to the report's fields; rows without a name are dropped."""
     out = []
     for r in raw:
         row = {}
@@ -78,8 +86,6 @@ def _rows(content: bytes, filename: str) -> list[dict]:
                 row[f] = v
         if row.get("name"):
             out.append(row)
-    if not out:
-        raise ValidationError("No discount rows found: the file needs a discount_name (or 'Discount name') column.")
     return out
 
 
@@ -116,6 +122,27 @@ def import_discount_report(db: Session, store: Store, content: bytes, filename: 
         raise ValidationError("Set the report period (start and end date): it is not in the file name.")
     if end < start:
         raise ValidationError("End date is before start date.")
+    parsed = parse_rows(rows)
+    rep = DiscountImport(dry_run=dry_run, rows=len(parsed), period_start=start.isoformat(), period_end=end.isoformat(),
+                         by_day=any(p["day"] for p in parsed),
+                         codes=len({p["name"] for p in parsed if p["method"] != "automatic"}),
+                         automatic=len({p["name"] for p in parsed if p["method"] == "automatic"}),
+                         test_rows=sorted({p["name"] for p in parsed if "TEST" in p["name"].upper()}))
+    existing = db.scalar(select(DiscountReport).where(DiscountReport.store_id == store.id,
+                                                      DiscountReport.period_start == start,
+                                                      DiscountReport.period_end == end))
+    rep.replaced_previous = existing is not None
+    if dry_run:
+        return rep
+    if existing:
+        _drop(db, existing)
+    report = save_report(db, store, parsed, start, end, source="shopify_export", filename=filename,
+                         sha=hashlib.sha256(content).hexdigest())
+    rep.report_id = report.id
+    return rep
+
+
+def parse_rows(rows: list[dict]) -> list[dict]:
     parsed = []
     for r in rows:
         day = None
@@ -130,32 +157,34 @@ def import_discount_report(db: Session, store: Store, content: bytes, filename: 
             "discount_class": (str(r.get("discount_class") or "").strip() or None),
             "orders": int(_num(r.get("orders")) or 0), "discounts": abs(_num(r.get("discounts")) or 0.0),
             "gross_sales": _num(r.get("gross_sales")), "reversals": _num(r.get("reversals")), "net_sales": _num(r.get("net_sales"))})
-    rep = DiscountImport(dry_run=dry_run, rows=len(parsed), period_start=start.isoformat(), period_end=end.isoformat(),
-                         by_day=any(p["day"] for p in parsed),
-                         codes=len({p["name"] for p in parsed if p["method"] != "automatic"}),
-                         automatic=len({p["name"] for p in parsed if p["method"] == "automatic"}),
-                         test_rows=sorted({p["name"] for p in parsed if "TEST" in p["name"].upper()}))
-    existing = db.scalar(select(DiscountReport).where(DiscountReport.store_id == store.id,
-                                                      DiscountReport.period_start == start,
-                                                      DiscountReport.period_end == end))
-    rep.replaced_previous = existing is not None
-    if dry_run:
-        return rep
-    if existing:
-        db.execute(delete(DiscountReportRow).where(DiscountReportRow.report_id == existing.id))
-        db.delete(existing)
-        db.flush()
-    report = DiscountReport(store_id=store.id, period_start=start, period_end=end, source="shopify_export",
-                            filename=filename[:255], file_sha256=hashlib.sha256(content).hexdigest(),
-                            by_day=rep.by_day, created_at=utcnow())
+    return parsed
+
+
+def _drop(db: Session, report: DiscountReport) -> None:
+    db.execute(delete(DiscountReportRow).where(DiscountReportRow.report_id == report.id))
+    db.delete(report)
+    db.flush()
+
+
+def save_report(db: Session, store: Store, parsed: list[dict], start: date, end: date, *, source: str,
+                filename: str | None, sha: str | None) -> DiscountReport:
+    report = DiscountReport(store_id=store.id, period_start=start, period_end=end, source=source,
+                            filename=(filename or "")[:255] or None, file_sha256=sha,
+                            by_day=any(p["day"] for p in parsed), created_at=utcnow())
     db.add(report)
     db.flush()
     db.add_all([DiscountReportRow(report_id=report.id, store_id=store.id, **p) for p in parsed])
     audit(db, "import.discount_report", "discount_report", report.id, store_id=store.id,
-          details={"filename": filename, "rows": len(parsed), "period": [rep.period_start, rep.period_end]})
+          details={"source": source, "filename": filename, "rows": len(parsed), "period": [start.isoformat(), end.isoformat()]})
     db.flush()
-    rep.report_id = report.id
-    return rep
+    return report
+
+
+def replace_platform_report(db: Session, store: Store, parsed: list[dict], start: date, end: date) -> DiscountReport:
+    """The platform report is one rolling report per store, replaced at every sync."""
+    for old in db.scalars(select(DiscountReport).where(DiscountReport.store_id == store.id, DiscountReport.source == "elizeta")):
+        _drop(db, old)
+    return save_report(db, store, parsed, start, end, source="elizeta", filename=None, sha=None)
 
 
 def _r(v, nd=2):
@@ -266,22 +295,29 @@ def offer_results(db: Session, rows: list[dict]) -> None:
     for r in rows:
         by_store[r["store_id"]].append(r)
     for store_id, items in by_store.items():
-        report = db.scalar(select(DiscountReport).where(DiscountReport.store_id == store_id)
-                           .order_by(DiscountReport.period_end.desc(), DiscountReport.created_at.desc()).limit(1))
-        if report is None:
+        reports = db.scalars(select(DiscountReport).where(DiscountReport.store_id == store_id)
+                             .order_by(DiscountReport.period_end.desc(), DiscountReport.created_at.desc())).all()
+        if not reports:
             for r in items:
                 r["discount_results"] = None
             continue
-        lines = db.scalars(select(DiscountReportRow).where(DiscountReportRow.report_id == report.id)).all()
-        by_name: dict[str, list[DiscountReportRow]] = defaultdict(list)
-        for ln in lines:
-            by_name[ln.name.upper()].append(ln)
-        users: dict[str, set[int]] = defaultdict(set)
-        for e in db.scalars(select(PromoEvent).where(PromoEvent.store_id == store_id)):
-            if e.start_date and e.start_date > report.period_end:
-                continue  # starts after the report: cannot share its figures
-            for n in [*(e.coupon_codes or []), *(e.linked_discounts or [])]:
-                users[n.upper()].add(e.id)
+        events = db.scalars(select(PromoEvent).where(PromoEvent.store_id == store_id)).all()
+        cache: dict[int, tuple] = {}
+
+        def load(report: DiscountReport) -> tuple:
+            if report.id not in cache:
+                by_name: dict[str, list[DiscountReportRow]] = defaultdict(list)
+                for ln in db.scalars(select(DiscountReportRow).where(DiscountReportRow.report_id == report.id)):
+                    by_name[ln.name.upper()].append(ln)
+                users: dict[str, set[int]] = defaultdict(set)
+                for e in events:
+                    if e.start_date and e.start_date > report.period_end:
+                        continue  # starts after the report: cannot share its figures
+                    for n in [*(e.coupon_codes or []), *(e.linked_discounts or [])]:
+                        users[n.upper()].add(e.id)
+                cache[report.id] = (by_name, users)
+            return cache[report.id]
+
         for r in items:
             names = [n for n in [*(r.get("coupon_codes") or []), *(r.get("linked_discounts") or [])] if n]
             if not names:
@@ -289,6 +325,9 @@ def offer_results(db: Session, rows: list[dict]) -> None:
                 continue
             start = date.fromisoformat(r["start_date"]) if r.get("start_date") else None
             end = date.fromisoformat(r["end_date"]) if r.get("end_date") else None
+            # The newest report covering the offer's start (a recent platform report may not reach older offers).
+            report = next((rp for rp in reports if start and rp.period_start <= start <= rp.period_end), reports[0])
+            by_name, users = load(report)
             if start and start > report.period_end:
                 r["discount_results"] = {"status": "after_report", "report_end": report.period_end.isoformat()}
                 continue

@@ -56,6 +56,14 @@ def _aware(dt: datetime | None) -> datetime | None:
 
 
 # ---- evidence -------------------------------------------------------------------------------
+# Discount lists (rather than a live connection): label and the store.constraints key that says
+# whether the latest list was complete. Only a complete list proves that a code does not exist.
+LIST_SOURCES = {
+    "elizeta": ("Shopify discount codes (via Eli Z)", "discount_codes_api"),
+    "shopify_export": ("the Shopify discounts export", "discount_export"),
+}
+
+
 def evidence_source(db: Session, store: Store) -> str | None:
     """Which coupon source counts as store evidence, or None when there is none."""
     if store.is_demo:
@@ -65,11 +73,10 @@ def evidence_source(db: Session, store: Store) -> str | None:
         st = db.scalar(select(SyncState).where(SyncState.store_id == store.id, SyncState.resource == "discounts"))
         if st and st.last_success_at:
             return DataSource.SHOPIFY
-    # Otherwise the Shopify admin Discounts export, when one was imported.
-    from app.offers.discount_list import SOURCE as EXPORT
-
-    if db.scalar(select(Coupon.id).where(Coupon.store_id == store.id, Coupon.source == EXPORT).limit(1)):
-        return EXPORT
+    # Otherwise a discount list: the platform's (refreshed at every sync) before the admin export.
+    for src in LIST_SOURCES:
+        if db.scalar(select(Coupon.id).where(Coupon.store_id == store.id, Coupon.source == src).limit(1)):
+            return src
     return None
 
 
@@ -77,8 +84,8 @@ def technical_status(db: Session, ev: PromoEvent, store: Store, source: str | No
     """(technical status, evidence text, evidence timestamp)."""
     if source is None:
         return TechnicalStatus.UNKNOWN, "Not verified: the store is not connected or its discounts have not been synced.", None
-    export = source == "shopify_export"
-    label = "demo store data" if source == DataSource.DEMO else "the Shopify discounts export" if export else "Shopify"
+    export = source in LIST_SOURCES
+    label = "demo store data" if source == DataSource.DEMO else LIST_SOURCES[source][0] if export else "Shopify"
     q = select(Coupon).where(Coupon.store_id == store.id, Coupon.source == source)
     if ev.shopify_discount_id:
         coupons = db.scalars(q.where(Coupon.source_id == ev.shopify_discount_id)).all()
@@ -92,7 +99,7 @@ def technical_status(db: Session, ev: PromoEvent, store: Store, source: str | No
         return (TechnicalStatus.UNKNOWN, "Not verified: no coupon code or linked store discount to check "
                                          "(automatic offers need a linked discount).", None)
     checked = max((_aware(c.last_synced_at) for c in coupons if c.last_synced_at), default=None)
-    complete = export and bool(((store.constraints or {}).get("discount_export") or {}).get("complete"))
+    complete = export and bool(((store.constraints or {}).get(LIST_SOURCES[source][1]) or {}).get("complete"))
     if not coupons and export and not complete:
         # A partial export (one page of 50): absence from it proves nothing.
         return TechnicalStatus.UNKNOWN, f"Not verified: {what} not in {label} (it may be on another page).", None
@@ -100,7 +107,7 @@ def technical_status(db: Session, ev: PromoEvent, store: Store, source: str | No
         if ev.status not in (OfferStatus.LIVE, OfferStatus.PAUSED, OfferStatus.COMPLETED):
             # Not gone live (planned, never launched or cancelled): a code not created yet is expected.
             return TechnicalStatus.UNKNOWN, f"{what.capitalize()} not created in Shopify (the offer has not gone live).", None
-        return TechnicalStatus.UNAVAILABLE, f"{what.capitalize()} does not exist in Shopify (complete discounts export).", None
+        return TechnicalStatus.UNAVAILABLE, f"{what.capitalize()} does not exist in Shopify (complete list: {label}).", None
     if not coupons:
         return TechnicalStatus.UNAVAILABLE, f"{what.capitalize()} not found in {label}.", checked
     states = {c.code: (c.status or "unknown") for c in coupons}

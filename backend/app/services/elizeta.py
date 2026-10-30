@@ -22,6 +22,7 @@ from app.services.audit import audit
 log = logging.getLogger(__name__)
 PROVIDER = "elizeta"
 SALES_WINDOW_DAYS = 30
+DISCOUNT_WINDOW_DAYS = 400  # sales by discount: a year of history, so last year's offers can be compared
 
 
 def get(db: Session, store_id: int) -> Integration | None:
@@ -135,7 +136,7 @@ def sync(db: Session, store: Store, *, trigger: str = "manual", today: date | No
     if integ is None:
         raise ValidationError("This store has no Eli Z settings.")
     today = today or date.today()
-    job = SyncJob(store_id=store.id, integration_id=integ.id, trigger=trigger, resources=["products", "sales"],
+    job = SyncJob(store_id=store.id, integration_id=integ.id, trigger=trigger, resources=["products", "sales", "discount_codes", "discount_sales"],
                   status=SyncStatus.RUNNING, started_at=utcnow(), stats={}, warnings=[*ez.NOT_AVAILABLE.values()])
     db.add(job)
     db.commit()
@@ -194,17 +195,75 @@ def sync(db: Session, store: Store, *, trigger: str = "manual", today: date | No
             st.last_status = SyncStatus.FAILED
             job.stats = {**job.stats, "sales": {"error": redact(exc.message)}}
             db.commit()
+
+        failures += sync_discounts(db, store, c, job, today)
     finally:
         c.close()
     if failures == 0:
         integ.status, integ.last_error, job.status = IntegrationStatus.CONNECTED, None, SyncStatus.SUCCESS
     else:
-        job.status = SyncStatus.PARTIAL if failures == 1 else SyncStatus.FAILED
+        job.status = SyncStatus.PARTIAL if failures < 4 else SyncStatus.FAILED
         integ.last_error = "Last synchronisation had errors; see sync history."
     job.finished_at = utcnow()
     audit(db, f"sync.{job.status}", "sync_job", job.id, store_id=store.id, actor="system", details=job.stats)
     db.commit()
     return job
+
+
+def sync_discounts(db: Session, store: Store, c: ez.ElizetaClient, job: SyncJob, today: date) -> int:
+    """Discount codes (status evidence), then sales by discount and day. Returns the failed steps.
+
+    An endpoint that answers in an unrecognised shape writes nothing and says which fields it sent."""
+    from app.offers import platform_discounts as pd
+    from app.offers.status import sync_store_offers
+
+    failures, groups = 0, {}
+    st = _state(db, store.id, "discount_codes")
+    st.last_attempt_at = utcnow()
+    try:
+        f = c.fetch_discount_codes()
+        if f.rows and not any(r.get("code") for r in f.rows):
+            raise ez.ElizetaError(f"Discount codes came back without a code field. Fields: {', '.join(f.fields)}.")
+        groups = pd.campaign_map(f.rows)
+        stats = pd.store_codes(db, store, f.rows, complete=f.complete)
+        if not f.complete:
+            job.warnings = [*job.warnings, "The discount code list was cut at the page limit: codes missing from it "
+                                           "stay not verified."]
+        st.last_success_at, st.last_status, st.record_count = utcnow(), SyncStatus.SUCCESS, len(f.rows)
+        job.stats = {**job.stats, "discount_codes": {**stats, "fields": f.fields}}
+        db.commit()
+    except AppError as exc:
+        db.rollback()
+        failures += 1
+        _state(db, store.id, "discount_codes").last_status = SyncStatus.FAILED
+        job.stats = {**job.stats, "discount_codes": {"error": redact(exc.message)}}
+        db.commit()
+
+    st = _state(db, store.id, "discount_sales")
+    st.last_attempt_at = utcnow()
+    try:
+        start, end = today - timedelta(days=DISCOUNT_WINDOW_DAYS), today - timedelta(days=1)
+        f = c.fetch_discount_sales(start, end)
+        from app.offers.discount_report import map_rows
+
+        if f.rows and not map_rows(f.rows):
+            raise ez.ElizetaError(f"Sales by discount came back without a discount name field. Fields: {', '.join(f.fields)}.")
+        stats = pd.store_sales(db, store, f.rows, start, end, groups)
+        if f.rows and not stats.get("by_day"):
+            job.warnings = [*job.warnings, "Sales by discount have no day field: offer results cannot be split by "
+                                           f"offer dates. Fields: {', '.join(f.fields)}."]
+        st.last_success_at, st.last_status, st.record_count = utcnow(), SyncStatus.SUCCESS, len(f.rows)
+        job.stats = {**job.stats, "discount_sales": {**stats, "fields": f.fields}}
+        db.commit()
+    except AppError as exc:
+        db.rollback()
+        failures += 1
+        _state(db, store.id, "discount_sales").last_status = SyncStatus.FAILED
+        job.stats = {**job.stats, "discount_sales": {"error": redact(exc.message)}}
+        db.commit()
+    sync_store_offers(db, store, today=today)  # technical status from the new evidence
+    db.commit()
+    return failures
 
 
 def store_sales(db: Session, store: Store, rows: list[ez.SalesRow], start: date, end: date) -> int:

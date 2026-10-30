@@ -7,14 +7,22 @@ tool (Email Maker, lib/elizeta-catalog.ts):
 - GET /api/v1/products?shop=<id>&status=active&limit=250   (cursor pagination: nextPageInfo)
 - GET /api/v1/sales-reports?from=&to=&currency=USD&shopid=<id>
 
-There is no public documentation. Orders and discount codes have no confirmed endpoint yet,
-so this client does not pretend to provide them: `capabilities()` says what it can read.
+Added by the platform on 2026-10-30 (described by its developer; schema on /api-docs):
+
+- GET /api/v1/discounts/sales?from=&to=&shop=<id>   one row per (store, day, discount)
+- GET /api/v1/discounts/codes?shop=<id>[&status=]   codes with campaign, status and dates;
+  automatic discounts are not listed (they are in discounts/sales)
+- GET /api/v1/collections?shop=<id> and /api/v1/collections/products?shop=<id>
+
+Days are in the store's time zone and used as given. Field names are read in camelCase or
+snake_case, and the field names seen are recorded so a sync can show what actually came back.
+Orders have no list endpoint, so this client does not pretend to provide them.
 """
 
 import re
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 import httpx
@@ -23,13 +31,12 @@ from app.connectors.base import ProductDTO, VariantDTO
 from app.core.errors import IntegrationError, ValidationError
 
 DEFAULT_BASE_URL = "https://platform.elizetaplus.com"
-CAPABILITIES = ("products", "sales_reports")
+CAPABILITIES = ("products", "sales_reports", "discount_sales", "discount_codes", "collections")
 NOT_AVAILABLE = {
-    "orders": "Eli Z has no confirmed orders endpoint yet: AOV with/without discount, orders with a code and "
-              "discount rate need order data.",
-    "discounts": "Eli Z has no confirmed discount-codes endpoint yet: the technical status of coupons cannot be "
-                 "checked against the platform.",
+    "orders": "Eli Z has no orders list: AOV without a discount and the share of all orders using a code need "
+              "the store's total orders.",
 }
+PAGE = 1000
 
 
 class ElizetaError(IntegrationError):
@@ -60,6 +67,28 @@ def _first(d: dict, *keys: str) -> Any:
         if d.get(k) not in (None, ""):
             return d[k]
     return None
+
+
+def _snake(k: str) -> str:
+    return re.sub(r"(?<=[a-z0-9])([A-Z])", r"_\1", str(k)).lower()
+
+
+def _items(d: Any, *keys: str) -> list[dict]:
+    """The list of records in a response: the body itself, or the first list under a known key."""
+    if isinstance(d, list):
+        return [x for x in d if isinstance(x, dict)]
+    if isinstance(d, dict):
+        for k in (*keys, "data", "rows", "items", "results"):
+            if isinstance(d.get(k), list):
+                return [x for x in d[k] if isinstance(x, dict)]
+    return []
+
+
+@dataclass
+class Fetched:
+    rows: list[dict]
+    fields: list[str]   # field names seen (never values)
+    complete: bool      # False when the page limit stopped the read
 
 
 class ElizetaClient:
@@ -146,6 +175,51 @@ class ElizetaClient:
                 sku=str(_first(r, "sku", "SKU") or "") or None,
             ))
         return out
+
+    def _paged(self, path: str, params: dict[str, Any], *keys: str, max_pages: int | None = None) -> Fetched:
+        """limit/offset pagination as on the platform's other list endpoints. Stops on a short page,
+        on a page identical to the previous one (endpoint without paging) or at the page limit."""
+        rows: list[dict] = []
+        offset, prev, limit_hit = 0, None, False
+        for page in range(max_pages or self.max_pages):
+            d = self._get(path, {**params, "limit": PAGE, "offset": offset})
+            items = _items(d, *keys)
+            if not items or items == prev:
+                break
+            rows.extend(items)
+            if len(items) < PAGE:
+                break
+            prev, offset = items, offset + len(items)
+            if page == (max_pages or self.max_pages) - 1:
+                limit_hit = True
+        fields = sorted({k for r in rows[:200] for k in r})
+        return Fetched(rows=[{_snake(k): v for k, v in r.items()} for r in rows], fields=fields, complete=not limit_hit)
+
+    def fetch_discount_sales(self, start: date, end: date) -> Fetched:
+        """Sales by discount, one row per day and discount, in the store's currency.
+
+        A month per request keeps responses small."""
+        out = Fetched(rows=[], fields=[], complete=True)
+        cur = start
+        while cur <= end:
+            nxt = min(date(cur.year + (cur.month == 12), cur.month % 12 + 1, 1) - timedelta(days=1), end)
+            f = self._paged("/api/v1/discounts/sales", {"from": cur.isoformat(), "to": nxt.isoformat(), "shop": self.shop_id},
+                            "sales", "discounts")
+            out.rows.extend(f.rows)
+            out.fields = sorted({*out.fields, *f.fields})
+            out.complete = out.complete and f.complete
+            cur = nxt + timedelta(days=1)
+        return out
+
+    def fetch_discount_codes(self) -> Fetched:
+        """Every code (all statuses: a code missing from a complete list does not exist)."""
+        return self._paged("/api/v1/discounts/codes", {"shop": self.shop_id}, "codes", "discounts", max_pages=200)
+
+    def fetch_collections(self) -> Fetched:
+        return self._paged("/api/v1/collections", {"shop": self.shop_id}, "collections")
+
+    def fetch_collection_products(self) -> Fetched:
+        return self._paged("/api/v1/collections/products", {"shop": self.shop_id}, "products", "memberships", max_pages=200)
 
     def verify(self) -> dict:
         """One page of the catalog: proves the shop id and key work."""

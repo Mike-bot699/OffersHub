@@ -42,6 +42,8 @@ def fake_platform(products, sold, seen: list):
             return httpx.Response(200, json={"products": products[:2], "nextPageInfo": "cursor2"})
         if req.url.path == "/api/v1/sales-reports":
             return httpx.Response(200, json={"sold": sold})
+        if req.url.path in ("/api/v1/discounts/codes", "/api/v1/discounts/sales"):
+            return httpx.Response(200, json={"data": []})
         return httpx.Response(404)
     return handler
 
@@ -83,8 +85,8 @@ def test_sync_filters_inactive_on_every_page_and_matches_sales(db, store, platfo
     assert rows["TOY  1"].match_method == "title" and rows["renamed"].match_method == "sku"
     assert rows["Unknown thing"].product_id is None
     assert rows["Toy 0"].units == 10
-    # orders and discount codes are declared unavailable, not silently empty
-    assert any("orders endpoint" in w for w in job.warnings)
+    # orders are declared unavailable, not silently empty
+    assert any("no orders list" in w for w in job.warnings)
     sales_req = next(r for r in platform["seen"] if r.url.path == "/api/v1/sales-reports")
     assert sales_req.url.params["shopid"] == "26" and sales_req.url.params["currency"] == "USD"
 
