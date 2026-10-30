@@ -166,3 +166,18 @@ class DiscountReportRow(Base):
     gross_sales: Mapped[float | None] = mapped_column(Money)
     reversals: Mapped[float | None] = mapped_column(Money)
     net_sales: Mapped[float | None] = mapped_column(Money)
+
+
+class DiscountPlacement(Base):
+    """Where a discount was shown besides offers (e.g. "Welcome popup", "Abandoned cart email"),
+    kept per store and code. Offers that show a code are linked through the offer's codes."""
+
+    __tablename__ = "discount_placements"
+    __table_args__ = (UniqueConstraint("store_id", "code"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id", ondelete="CASCADE"), index=True)
+    code: Mapped[str] = mapped_column(String(300))  # upper-case code or automatic discount name
+    placements: Mapped[list[Any]] = mapped_column(default=list)
+    notes: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

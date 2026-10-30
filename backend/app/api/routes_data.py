@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.api.common import DB, get_store, to_dict
 from app.core.errors import ConflictError, ValidationError
+from app.db.base import utcnow
 from app.db.session import session_scope
 from app.models import ImportBatch, SyncJob
 from app.services import integrations as svc
@@ -195,9 +196,11 @@ def discount_report(store_id: int, start: str | None = None, end: str | None = N
     r = latest_report(db, store, _date.fromisoformat(start) if start else None, _date.fromisoformat(end) if end else None)
     if r:
         return summarize(db, r)
-    from app.offers.discount_report import store_coupons
+    from app.offers.discount_report import store_coupons, store_placements
 
-    return {"report": None, "unused": [{"name": v["title"], "store": v, "offers": []} for v in store_coupons(db, store.id).values()]}
+    places = store_placements(db, store.id)
+    return {"report": None, "unused": [{"name": v["title"], "store": v, "offers": [], "placements": places.get(k, [])}
+                                       for k, v in store_coupons(db, store.id).items()]}
 
 
 @router.post("/stores/{store_id}/discount-list/import")
@@ -227,3 +230,81 @@ def get_import(batch_id: int, db: Session = DB):
 
         raise NotFoundError("Import not found.")
     return to_dict(b)
+
+
+# ---- where a discount was shown -------------------------------------------------------------
+class PlacementIn(BaseModel):
+    code: str = Field(min_length=1, max_length=300)
+    placements: list[str] = Field(default_factory=list, max_length=30)
+    notes: str | None = None
+
+
+class LinkIn(BaseModel):
+    code: str = Field(min_length=1, max_length=300)
+    event_id: int
+    automatic: bool = False  # automatic discounts link by name, codes by code
+    unlink: bool = False
+
+
+def _placement_out(db: Session, store_id: int, code: str) -> dict:
+    from app.models import DiscountPlacement, PromoEvent
+
+    key = code.strip().upper()
+    offers = [{"id": e.id, "name": e.name, "status": e.status, "start_date": e.start_date.isoformat() if e.start_date else None,
+               "end_date": e.end_date.isoformat() if e.end_date else None}
+              for e in db.scalars(select(PromoEvent).where(PromoEvent.store_id == store_id).order_by(PromoEvent.start_date.desc()))
+              if key in {c.upper() for c in [*(e.coupon_codes or []), *(e.linked_discounts or [])]}]
+    p = db.scalar(select(DiscountPlacement).where(DiscountPlacement.store_id == store_id, DiscountPlacement.code == key))
+    return {"code": code, "offers": offers, "placements": p.placements if p else [], "notes": p.notes if p else None}
+
+
+@router.get("/stores/{store_id}/discount-placements")
+def get_placements(store_id: int, code: str, db: Session = DB):
+    get_store(db, store_id)
+    return _placement_out(db, store_id, code)
+
+
+@router.put("/stores/{store_id}/discount-placements")
+def save_placements(store_id: int, body: PlacementIn, db: Session = DB):
+    from app.models import DiscountPlacement
+
+    store = get_store(db, store_id)
+    key = body.code.strip().upper()
+    clean: list[str] = []
+    for t in body.placements:
+        t = t.strip()[:120]
+        if t and t.lower() not in {x.lower() for x in clean}:
+            clean.append(t)
+    p = db.scalar(select(DiscountPlacement).where(DiscountPlacement.store_id == store.id, DiscountPlacement.code == key))
+    if p is None:
+        p = DiscountPlacement(store_id=store.id, code=key)
+        db.add(p)
+    p.placements, p.notes, p.updated_at = clean, (body.notes or "").strip() or None, utcnow()
+    audit(db, "discount.placements_updated", "store", store.id, store_id=store.id, details={"code": key, "placements": clean})
+    db.commit()
+    return _placement_out(db, store.id, body.code)
+
+
+@router.post("/stores/{store_id}/discount-placements/link")
+def link_offer(store_id: int, body: LinkIn, db: Session = DB):
+    """Add (or remove) the code on an offer, so the offer's code results and technical status follow."""
+    from app.models import PromoEvent
+    from app.offers.status import refresh
+
+    store = get_store(db, store_id)
+    ev = db.get(PromoEvent, body.event_id)
+    if ev is None or ev.store_id != store.id:
+        raise ValidationError("Offer not found in this store.")
+    field = "linked_discounts" if body.automatic else "coupon_codes"
+    value = body.code.strip() if body.automatic else body.code.strip().upper()
+    current = list(getattr(ev, field) or [])
+    if body.unlink:
+        current = [c for c in current if c.upper() != value.upper()]
+    elif value.upper() not in {c.upper() for c in current}:
+        current.append(value)
+    setattr(ev, field, current)
+    refresh(db, ev, store)
+    audit(db, "discount.offer_unlinked" if body.unlink else "discount.offer_linked", "promo_event", ev.id,
+          store_id=store.id, details={"code": value})
+    db.commit()
+    return _placement_out(db, store.id, body.code)

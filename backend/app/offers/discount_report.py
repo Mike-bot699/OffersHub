@@ -210,10 +210,11 @@ def summarize(db: Session, report: DiscountReport, *, top: int | None = None) ->
         if a["last_day"] and (line["last_day"] is None or a["last_day"] > line["last_day"]):
             line["last_day"] = a["last_day"]
     coupon_info = store_coupons(db, report.store_id)
+    placements = store_placements(db, report.store_id)
     # Which offers use each code (codes are stored upper-case on offers).
     offers: dict[str, list[str]] = defaultdict(list)
     for e in db.scalars(select(PromoEvent).where(PromoEvent.store_id == report.store_id)):
-        for c in e.coupon_codes or []:
+        for c in [*(e.coupon_codes or []), *(e.linked_discounts or [])]:
             offers[c.upper()].append(e.name)
     out_lines = []
     for ln in sorted(lines.values(), key=lambda x: (-x["orders"], -x["net_sales"])):
@@ -224,6 +225,7 @@ def summarize(db: Session, report: DiscountReport, *, top: int | None = None) ->
             "last_day": ln["last_day"].isoformat() if ln["last_day"] else None,
             "offers": offers.get(ln["name"].upper(), []),
             "store": coupon_info.get(ln["name"].upper()),
+            "placements": placements.get(ln["name"].upper(), []),
         })
     codes = [x for x in out_lines if x["method"] != "automatic"]
     auto = [x for x in out_lines if x["method"] == "automatic"]
@@ -244,7 +246,8 @@ def summarize(db: Session, report: DiscountReport, *, top: int | None = None) ->
         "lines": out_lines[:top] if top else out_lines,
         "excluded_tests": sorted(tests),
         # Discounts in the store list that the report never saw used (e.g. new or unused codes).
-        "unused": [{"name": v["title"], "store": v, "offers": offers.get(k, [])} for k, v in sorted(coupon_info.items())
+        "unused": [{"name": v["title"], "store": v, "offers": offers.get(k, []), "placements": placements.get(k, [])}
+                   for k, v in sorted(coupon_info.items())
                    if k not in {n.upper() for n in by_name} and "TEST" not in k],
         "grouped": {g: sum(1 for v in grouped.values() if v == g) for g in set(grouped.values())},
         "note": "Orders are counted once per discount used: an order with a code and an automatic discount appears "
@@ -333,3 +336,9 @@ def store_coupons(db: Session, store_id: int) -> dict[str, dict]:
                        "ends_at": c.ends_at.isoformat() if c.ends_at else None, "usage_count": c.usage_count,
                        "source": c.source, "checked_at": c.last_synced_at.isoformat() if c.last_synced_at else None}
     return out
+
+
+def store_placements(db: Session, store_id: int) -> dict[str, list[str]]:
+    from app.models import DiscountPlacement
+
+    return {p.code: p.placements or [] for p in db.scalars(select(DiscountPlacement).where(DiscountPlacement.store_id == store_id))}

@@ -4,16 +4,17 @@ import { api } from '../api'
 import { date, money, num, pct } from '../format'
 import { NeedStore } from '../NeedStore'
 import type { StoreRow } from '../state'
-import { Card, Empty, ErrorBox, Field, Kpi, Loading, Source, useSort } from '../ui'
+import { Card, Drawer, Empty, ErrorBox, Field, Kpi, Loading, Source, useSort } from '../ui'
 
 export type ReportLine = {
   name: string; method: string | null; discount_class: string | null; orders: number; discounts: number; gross_sales: number
   net_sales: number; aov: number | null; discount_rate: number | null; codes_in_group: number; last_day: string | null; offers: string[]
   store?: StoreDiscount | null
+  placements?: string[]
 }
 export type StoreDiscount = { title: string; status: string | null; value: number | null; value_type: string | null; min_subtotal: number | null
   min_quantity: number | null; starts_at: string | null; ends_at: string | null; usage_count: number | null; source: string; checked_at: string | null }
-type Unused = { name: string; store: StoreDiscount; offers: string[] }
+type Unused = { name: string; store: StoreDiscount; offers: string[]; placements?: string[] }
 type Totals = { orders: number; discounts: number; gross_sales: number; net_sales: number; aov: number | null; discount_rate: number | null }
 export type DiscountSummary = {
   report: null | { id: number; period_start: string; period_end: string; source: string; filename: string | null; by_day: boolean }
@@ -48,6 +49,7 @@ function ReportFor({ store }: { store: StoreRow }) {
   const q = useQuery({ queryKey: ['discount-report', store.id], queryFn: () => api.get<DiscountSummary>(`/stores/${store.id}/discount-report`) })
   const [method, setMethod] = useState<'all' | 'code' | 'automatic'>('all')
   const [status, setStatus] = useState('all')
+  const [open, setOpen] = useState<{ code: string; automatic: boolean } | null>(null)
   const lines = (q.data?.lines ?? []).filter((l) => (method === 'all' || (method === 'automatic' ? l.method === 'automatic' : l.method !== 'automatic'))
     && (status === 'all' || (status === 'not_in_export' ? !l.store : l.store?.status === status)))
   const { sorted, th } = useSort(lines, 'orders')
@@ -76,14 +78,14 @@ function ReportFor({ store }: { store: StoreRow }) {
             </div>}>
             <div className="table-wrap" style={{ maxHeight: 620 }}>
               <table>
-                <thead><tr><th>Discount</th><th>Status</th><th>Value</th><th>Valid</th><th>Offer</th>{th('orders', 'Orders')}{th('discounts', 'Discounts')}{th('gross_sales', 'Gross sales')}{th('net_sales', 'Net sales')}{th('aov', 'AOV')}{th('discount_rate', 'Discount %')}</tr></thead>
+                <thead><tr><th>Discount</th><th>Status</th><th>Value</th><th>Valid</th><th>Shown in</th>{th('orders', 'Orders')}{th('discounts', 'Discounts')}{th('gross_sales', 'Gross sales')}{th('net_sales', 'Net sales')}{th('aov', 'AOV')}{th('discount_rate', 'Discount %')}</tr></thead>
                 <tbody>{sorted.map((l) => (
-                  <tr key={l.name}>
+                  <tr key={l.name} className={l.codes_in_group > 1 ? '' : 'clickable'} onClick={() => l.codes_in_group <= 1 && setOpen({ code: l.name, automatic: l.method === 'automatic' })}>
                     <td className={l.method === 'automatic' ? '' : 'mono'} style={{ maxWidth: 320 }}>{l.name}{l.codes_in_group > 1 && <small className="muted"> · {l.codes_in_group} codes</small>}</td>
                     <td><StoreStatus s={l.store} /></td>
                     <td><small>{valueText(l.store, cur)}</small><div><small className="muted">{l.method === 'automatic' ? 'Automatic' : 'Code'}{l.discount_class ? ` · ${l.discount_class}` : ''}</small></div></td>
                     <td style={{ whiteSpace: 'nowrap' }}><small>{validity(l.store)}</small></td>
-                    <td><small>{l.offers.length ? l.offers.join(', ') : <span className="muted">—</span>}</small></td>
+                    <td style={{ minWidth: 140 }}><ShownIn offers={l.offers} placements={l.placements} /></td>
                     <td className="num">{num(l.orders)}</td><td className="num">{money(l.discounts, cur)}</td><td className="num">{money(l.gross_sales, cur)}</td>
                     <td className="num">{money(l.net_sales, cur)}</td><td className="num">{money(l.aov, cur, 2)}</td><td className="num">{pct(l.discount_rate)}</td>
                   </tr>))}
@@ -102,10 +104,10 @@ function ReportFor({ store }: { store: StoreRow }) {
         <Card title={d.report ? 'Not used in the report period' : 'Store discounts'} extra={<small className="muted">From the Shopify discounts export</small>}>
           <div className="table-wrap" style={{ maxHeight: 420 }}>
             <table>
-              <thead><tr><th>Discount</th><th>Status</th><th>Value</th><th>Valid</th><th>Offer</th><th className="num">Times used (all time)</th></tr></thead>
+              <thead><tr><th>Discount</th><th>Status</th><th>Value</th><th>Valid</th><th>Shown in</th><th className="num">Times used (all time)</th></tr></thead>
               <tbody>{d.unused.filter((u) => status === 'all' || u.store.status === status).map((u) => (
-                <tr key={u.name}><td className="mono">{u.name}</td><td><StoreStatus s={u.store} /></td><td><small>{valueText(u.store, cur)}</small></td>
-                  <td style={{ whiteSpace: 'nowrap' }}><small>{validity(u.store)}</small></td><td><small>{u.offers.join(', ') || '—'}</small></td>
+                <tr key={u.name} className="clickable" onClick={() => setOpen({ code: u.name, automatic: u.name.includes(' ') })}><td className="mono">{u.name}</td><td><StoreStatus s={u.store} /></td><td><small>{valueText(u.store, cur)}</small></td>
+                  <td style={{ whiteSpace: 'nowrap' }}><small>{validity(u.store)}</small></td><td style={{ minWidth: 140 }}><ShownIn offers={u.offers} placements={u.placements} /></td>
                   <td className="num">{num(u.store.usage_count)}</td></tr>))}
               </tbody>
             </table>
@@ -114,6 +116,7 @@ function ReportFor({ store }: { store: StoreRow }) {
       )}
       <DiscountImport store={store} />
       <DiscountListImport store={store} />
+      {open && <PlacementDrawer store={store} code={open.code} automatic={open.automatic} onClose={() => setOpen(null)} />}
     </div>
   )
 }
@@ -188,5 +191,80 @@ export function DiscountListImport({ store }: { store: StoreRow }) {
       </small></div>}
       {r?.warnings.map((w, i) => <div key={i} className="notice warning mt"><small>{w}</small></div>)}
     </Card>
+  )
+}
+
+type Placement = { code: string; offers: { id: number; name: string; status: string | null; start_date: string | null; end_date: string | null }[]
+  placements: string[]; notes: string | null }
+const SUGGESTED = ['Welcome popup', 'Exit-intent popup', 'Abandoned cart email', 'Welcome email flow', 'Newsletter', 'SMS',
+  'Influencer / affiliate', 'Customer service', 'Thank-you page', 'Paid social ad']
+
+/** "Shown in": the offers that use the code plus other placements (popups, emails…). */
+export function ShownIn({ offers, placements }: { offers: string[]; placements?: string[] }) {
+  if (!offers.length && !placements?.length) return <span className="muted">— <small>add</small></span>
+  return (
+    <span>
+      {offers.map((o) => <div key={o}><small>{o}</small></div>)}
+      {placements?.map((p) => <span key={p} className="badge tag-manual" style={{ marginRight: 4 }}>{p}</span>)}
+    </span>
+  )
+}
+
+export function PlacementDrawer({ store, code, automatic, onClose }: { store: StoreRow; code: string; automatic: boolean; onClose: () => void }) {
+  const qc = useQueryClient()
+  const q = useQuery({ queryKey: ['placement', store.id, code], queryFn: () => api.get<Placement>(`/stores/${store.id}/discount-placements?code=${encodeURIComponent(code)}`) })
+  const events = useQuery({ queryKey: ['events', store.id, 'all-for-link'], queryFn: () => api.get<{ id: number; name: string; start_date: string | null; end_date: string | null; status: string | null }[]>(`/events?store_id=${store.id}`) })
+  const [pick, setPick] = useState('')
+  const [text, setText] = useState('')
+  const [draft, setDraft] = useState<{ placements: string[]; notes: string } | null>(null)
+  const cur = draft ?? { placements: q.data?.placements ?? [], notes: q.data?.notes ?? '' }
+  const refresh = () => { qc.invalidateQueries({ queryKey: ['discount-report'] }); qc.invalidateQueries({ queryKey: ['events'] }); qc.invalidateQueries({ queryKey: ['placement', store.id, code] }) }
+  const link = useMutation({ mutationFn: (b: { event_id: number; unlink?: boolean }) => api.post(`/stores/${store.id}/discount-placements/link`, { code, automatic, ...b }),
+    onSuccess: () => { setPick(''); refresh() } })
+  const save = useMutation({ mutationFn: () => api.put(`/stores/${store.id}/discount-placements`, { code, placements: cur.placements, notes: cur.notes }),
+    onSuccess: () => { setDraft(null); refresh() } })
+  const add = (t: string) => { const v = t.trim(); if (v && !cur.placements.some((p) => p.toLowerCase() === v.toLowerCase())) setDraft({ ...cur, placements: [...cur.placements, v] }); setText('') }
+  const linked = new Set(q.data?.offers.map((o) => o.id))
+  const options = (events.data ?? []).filter((e) => !linked.has(e.id))
+  return (
+    <Drawer open onClose={onClose} title={<div><h2 className={automatic ? '' : 'mono'}>{code}</h2><small className="muted">Where this discount was shown</small></div>}>
+      {q.isLoading ? <Loading /> : (
+        <>
+          <div className="section-title" style={{ marginTop: 0 }}>Offers</div>
+          {!q.data?.offers.length ? <small className="muted">Not linked to any offer.</small> : (
+            <table><tbody>{q.data.offers.map((o) => (
+              <tr key={o.id}><td><strong>{o.name}</strong><div><small className="muted">{o.start_date ? `${date(o.start_date)} → ${date(o.end_date)}` : 'no dates'} · {o.status ?? 'status not set'}</small></div></td>
+                <td style={{ textAlign: 'right' }}><button onClick={() => confirm(`Remove ${code} from "${o.name}"?`) && link.mutate({ event_id: o.id, unlink: true })}>Remove</button></td></tr>))}
+            </tbody></table>
+          )}
+          <div className="row mt">
+            <select value={pick} onChange={(e) => setPick(e.target.value)} style={{ flex: 1, minWidth: 0 }}>
+              <option value="">Add to an offer from the Offers Plan or DB…</option>
+              {options.map((e) => <option key={e.id} value={e.id}>{e.start_date ? `${date(e.start_date)} · ` : ''}{e.name}</option>)}
+            </select>
+            <button className="primary" disabled={!pick || link.isPending} onClick={() => link.mutate({ event_id: Number(pick) })}>Add</button>
+          </div>
+          <small className="muted" style={{ display: 'block', marginTop: 4 }}>Adds the {automatic ? 'discount' : 'code'} to that offer: its code results and technical status follow.</small>
+
+          <div className="section-title">Other placements</div>
+          <div className="row" style={{ gap: 6 }}>
+            {cur.placements.length ? cur.placements.map((p) => (
+              <span key={p} className="badge tag-manual">{p}<button className="tag-x" aria-label={`Remove ${p}`} onClick={() => setDraft({ ...cur, placements: cur.placements.filter((x) => x !== p) })}>×</button></span>
+            )) : <small className="muted">None — e.g. a popup, an email flow, SMS.</small>}
+          </div>
+          <form className="row mt" onSubmit={(e) => { e.preventDefault(); add(text) }}>
+            <input list="placement-suggest" value={text} onChange={(e) => setText(e.target.value)} placeholder="e.g. Welcome popup" style={{ flex: 1 }} />
+            <datalist id="placement-suggest">{SUGGESTED.map((s) => <option key={s} value={s} />)}</datalist>
+            <button type="submit" disabled={!text.trim()}>Add</button>
+          </form>
+          <div className="mt"><Field label="Notes"><textarea value={cur.notes} onChange={(e) => setDraft({ ...cur, notes: e.target.value })} placeholder="e.g. replaced LITTLE10 in the welcome flow from March" /></Field></div>
+          <div className="row mt">
+            <button className="primary" disabled={!draft || save.isPending} onClick={() => save.mutate()}>Save placements</button>
+            {draft && <small className="muted">Unsaved changes</small>}
+          </div>
+          <ErrorBox error={link.error ?? save.error} />
+        </>
+      )}
+    </Drawer>
   )
 }

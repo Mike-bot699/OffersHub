@@ -119,3 +119,24 @@ def test_by_day_report_splits_offer_and_late_use(db, store):
     offer_results(db, [row])
     res = row["discount_results"]
     assert res["orders"] == 2 and res["late"] == {"orders": 1, "discounts": 15.0}
+
+
+def test_placements_and_offer_linking(db, store):
+    from app.main import create_app
+
+    import_discount_report(db, store, _content(), FILENAME, start=None, end=None, dry_run=False)
+    db.commit()
+    c = TestClient(create_app())
+    ev = c.post("/api/events", json={"store_id": store.id, "name": "Halloween"}).json()
+    r = c.post(f"/api/stores/{store.id}/discount-placements/link", json={"code": "spooklab", "event_id": ev["id"]}).json()
+    assert [o["name"] for o in r["offers"]] == ["Halloween"]
+    assert c.get(f"/api/events/{ev['id']}").json()["coupon_codes"] == ["SPOOKLAB"]  # the offer follows
+    auto = "Kaching Bundles - MixMaster Junior DJ Console and 4 others"
+    c.post(f"/api/stores/{store.id}/discount-placements/link", json={"code": auto, "event_id": ev["id"], "automatic": True})
+    c.put(f"/api/stores/{store.id}/discount-placements", json={"code": "WLL10", "placements": ["Welcome popup", " welcome popup ", "Abandoned cart email"]})
+    rep = c.get(f"/api/stores/{store.id}/discount-report").json()
+    lines = {ln["name"]: ln for ln in rep["lines"]}
+    assert lines["WLL10"]["placements"] == ["Welcome popup", "Abandoned cart email"]
+    assert lines["SPOOKLAB"]["offers"] == ["Halloween"] and lines[auto]["offers"] == ["Halloween"]
+    r = c.post(f"/api/stores/{store.id}/discount-placements/link", json={"code": "SPOOKLAB", "event_id": ev["id"], "unlink": True}).json()
+    assert r["offers"] == []
