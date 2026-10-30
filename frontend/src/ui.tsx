@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ApiError } from './api'
 import { label, money, pct, signedPct } from './format'
 
@@ -126,6 +126,44 @@ export function Seg<T extends string | number>({ value, options, onChange }: {
           {o.label}
         </button>
       ))}
+    </div>
+  )
+}
+
+/** Dropdown with a checkbox per option: unchecked options are hidden. `hidden` holds the unchecked values. */
+export function CheckDropdown({ label: text, options, hidden, onChange }: {
+  label: string; options: { value: string; label: ReactNode; count?: number }[]; hidden: string[]; onChange: (hidden: string[]) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const close = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open])
+  const shown = options.filter((o) => !hidden.includes(o.value)).length
+  const summary = shown === options.length ? 'All' : shown === 0 ? 'None' : `${shown} of ${options.length}`
+  return (
+    <div className="check-dd" ref={ref}>
+      <button type="button" className={hidden.length ? 'on' : ''} aria-expanded={open} onClick={() => setOpen(!open)}>
+        {text}: <strong>{summary}</strong> ▾
+      </button>
+      {open && (
+        <div className="check-dd-menu" role="menu">
+          {options.map((o) => (
+            <label key={o.value} className="check-dd-item">
+              <input type="checkbox" checked={!hidden.includes(o.value)}
+                onChange={() => onChange(hidden.includes(o.value) ? hidden.filter((x) => x !== o.value) : [...hidden, o.value])} />
+              <span>{o.label}</span>{o.count != null && <small className="muted">{o.count}</small>}
+            </label>
+          ))}
+          <div className="check-dd-foot">
+            <button type="button" className="ghost small" onClick={() => onChange([])}>Show all</button>
+            <button type="button" className="ghost small" onClick={() => onChange(options.map((o) => o.value))}>Hide all</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -4,7 +4,7 @@ import { useState, type ReactNode } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from './api'
 import { date, label, money, num, pct } from './format'
-import { DemoBadge, ErrorBox, useSort } from './ui'
+import { CheckDropdown, DemoBadge, ErrorBox, useSort } from './ui'
 import { BannerThumb } from './banner'
 
 export type OfferStatus = 'in_progress' | 'scheduled' | 'live' | 'paused' | 'completed' | 'cancelled'
@@ -315,39 +315,60 @@ function useTagFilter(rows: Ev[]) {
   return { tagChips, tagMatch }
 }
 
-export function PlanTable({ rows, onOpen, showResults = false, empty }: { rows: Ev[]; onOpen: (e: Ev) => void; showResults?: boolean; empty: ReactNode }) {
+const HIDDEN_LEVELS_KEY = 'offershub.plan.hiddenLevels'
+
+function readHidden(): string[] {
+  try { const v = JSON.parse(localStorage.getItem(HIDDEN_LEVELS_KEY) ?? '[]'); return Array.isArray(v) ? v : [] } catch { return [] }
+}
+
+/** Status, review, Level and Tags filters for the Offers Plan: one state shared by the Plan table and the Calendar. */
+export function usePlanFilters(rows: Ev[]) {
   const [filter, setFilter] = useState<string[]>([])
   const [reviewOnly, setReviewOnly] = useState(false)
   const { tagChips, tagMatch } = useTagFilter(rows)
-  const [levels, setLevels] = useState<string[]>([])
+  // Hidden levels are a per-browser preference, remembered between visits.
+  const [hiddenLevels, setHidden] = useState<string[]>(readHidden)
+  const setHiddenLevels = (v: string[]) => { setHidden(v); try { localStorage.setItem(HIDDEN_LEVELS_KEY, JSON.stringify(v)) } catch { /* storage unavailable */ } }
   const shown = rows.filter((r) => (filter.length === 0 || filter.includes(r.status ?? 'not_set')) && (!reviewOnly || r.needs_review) && tagMatch(r)
-    && (levels.length === 0 || levels.includes(r.level ?? '')))
-  const { sorted, th } = useSort<PlanRow>(shown.map((r) => ({ ...r, _status: statusRank(r.status), _start: r.start_date ?? '', _end: r.end_date ?? '',
-    _dur: r.duration_days ?? -1, _store: r.store_code, _name: r.name })), '_start', !!showResults)
+    && !hiddenLevels.includes(r.level ?? ''))
   const toReview = rows.filter((r) => r.needs_review).length
-  return (
+  const bar = (
     <>
       <div className="row" style={{ marginBottom: 10, justifyContent: 'space-between' }}>
         <StatusFilter rows={rows} value={filter} onChange={setFilter} />
-        <label className="row" style={{ gap: 6 }}>
-          <input type="checkbox" checked={reviewOnly} onChange={(e) => setReviewOnly(e.target.checked)} />
-          <span className="secondary">Needs review only ({toReview})</span>
-        </label>
-      </div>
-      <div className="chips" style={{ marginBottom: 10 }}>
-        <small className="muted" style={{ alignSelf: 'center' }}>Level</small>
-        {LEVELS.map(([v, text]) => {
-          const n = rows.filter((r) => (r.level ?? '') === v).length
-          if (!n && v === '') return null
-          return (
-            <button key={v} type="button" className={`chip ${levels.includes(v) ? 'on' : ''}`} disabled={!n}
-              onClick={() => setLevels(levels.includes(v) ? levels.filter((x) => x !== v) : [...levels, v])}>
-              {text} <small className="muted">{n}</small>
-            </button>)
-        })}
-        {levels.length > 0 && <button type="button" className="ghost small" onClick={() => setLevels([])}>Clear</button>}
+        <div className="row" style={{ gap: 12 }}>
+          <CheckDropdown label="Level" hidden={hiddenLevels} onChange={setHiddenLevels}
+            options={LEVELS.map(([v, text]) => ({ value: v, label: text, count: rows.filter((r) => (r.level ?? '') === v).length }))} />
+          <label className="row" style={{ gap: 6 }}>
+            <input type="checkbox" checked={reviewOnly} onChange={(e) => setReviewOnly(e.target.checked)} />
+            <span className="secondary">Needs review only ({toReview})</span>
+          </label>
+        </div>
       </div>
       {tagChips}
+      {hiddenLevels.length > 0 && rows.length > shown.length && (
+        <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
+          Hidden levels: {hiddenLevels.map((v) => LEVELS.find(([k]) => k === v)?.[1] ?? v).join(', ')}.{' '}
+          <button type="button" className="ghost small" onClick={() => setHiddenLevels([])}>Show all levels</button>
+        </div>
+      )}
+    </>
+  )
+  return { bar, shown }
+}
+
+export type PlanFilters = ReturnType<typeof usePlanFilters>
+
+export function PlanTable({ rows, onOpen, showResults = false, empty, filters }: {
+  rows: Ev[]; onOpen: (e: Ev) => void; showResults?: boolean; empty: ReactNode; filters?: PlanFilters
+}) {
+  const own = usePlanFilters(rows)
+  const { bar, shown } = filters ?? own
+  const { sorted, th } = useSort<PlanRow>(shown.map((r) => ({ ...r, _status: statusRank(r.status), _start: r.start_date ?? '', _end: r.end_date ?? '',
+    _dur: r.duration_days ?? -1, _store: r.store_code, _name: r.name })), '_start', !!showResults)
+  return (
+    <>
+      {bar}
       {!sorted.length ? empty : (
         <div className="table-wrap plan-table">
           <table>

@@ -1,10 +1,12 @@
 import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { OffersCalendar } from '../calendar'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, qs } from '../api'
 import { date, label, money, num, pct } from '../format'
 import { useApp } from '../state'
 import { Card, Drawer, Empty, ErrorBox, Field, Loading, PageHead, Source, Status, Tabs } from '../ui'
-import { OFFER_STATUSES, OfferStatusBadge, PlanTable, StatusPanel, SUGGESTED_TAGS, TagChip, TechStatusBadge, suggestTags, type Ev } from '../offerStatus'
+import { OFFER_STATUSES, OfferStatusBadge, PlanTable, StatusPanel, usePlanFilters, SUGGESTED_TAGS, TagChip, TechStatusBadge, suggestTags, type Ev } from '../offerStatus'
 import { BannerView, useBanner } from '../banner'
 import { DiscountCodes, DiscountImport, DiscountListImport, type DiscountSummary } from './DiscountReport'
 
@@ -12,10 +14,13 @@ type Alert = { severity: string; kind: string; title: string; detail: string; st
 
 export function OffersPlan() {
   const { storeId, includeDemo } = useApp()
-  const [tab, setTab] = useState('plan')
+  const [params, setParams] = useSearchParams()
+  const tab = params.get('tab') ?? 'plan'
+  const setTab = (t: string) => setParams(t === 'plan' ? {} : { tab: t }, { replace: true })
   const [edit, setEdit] = useState<Ev | 'new' | null>(null)
   const q = useQuery({ queryKey: ['events', storeId, 'plan', includeDemo], queryFn: () => api.get<Ev[]>(`/events${qs({ store_id: storeId, include_demo: includeDemo, when: 'plan' })}`) })
   const rows = q.data ?? []
+  const filters = usePlanFilters(rows)
   const n = (s: string) => rows.filter((r) => r.status === s).length
   return (
     <>
@@ -28,13 +33,19 @@ export function OffersPlan() {
         <div className="kpi"><div className="k-label">Paused</div><div className="k-value">{n('paused')}</div></div>
         <div className="kpi"><div className="k-label">Need review</div><div className={`k-value ${rows.some((r) => r.conflict_open) ? 'critical-ink' : ''}`}>{rows.filter((r) => r.needs_review).length}</div><div className="k-sub">status or dates to confirm</div></div>
       </div>
-      <Tabs value={tab} onChange={setTab} tabs={[{ id: 'plan', label: 'Plan' }, { id: 'alerts', label: 'Monitoring' }]} />
+      <Tabs value={tab} onChange={setTab} tabs={[{ id: 'plan', label: 'Plan' }, { id: 'calendar', label: 'Calendar' }, { id: 'alerts', label: 'Monitoring' }]} />
       {tab === 'plan' && (
         <Card>
           {q.isLoading ? <Loading /> : q.error ? <ErrorBox error={q.error} /> : (
-            <PlanTable rows={rows} onOpen={setEdit} empty={<Empty title="Nothing planned">Import the marketing calendar (Offers DB → Import) or create an offer.</Empty>} />
+            <PlanTable rows={rows} filters={filters} onOpen={setEdit} empty={<Empty title="Nothing planned">Import the marketing calendar (Offers DB → Import) or create an offer.</Empty>} />
           )}
           <Source>Offers with future dates are Scheduled automatically; Live, Paused, Completed and Cancelled are set by you (dates alone never make an offer Live). Technical Status is what the store shows for the offer's code — including codes still active after the offer ended.</Source>
+        </Card>
+      )}
+      {tab === 'calendar' && (
+        <Card>
+          {q.isLoading ? <Loading /> : q.error ? <ErrorBox error={q.error} /> : <>{filters.bar}<OffersCalendar rows={filters.shown} onOpen={setEdit} /></>}
+          <Source>Bars span each offer's start and end dates; colours follow the Displayed field (or the offer status). Offers without dates are listed under the calendar, never placed on it.</Source>
         </Card>
       )}
       {tab === 'alerts' && <Alerts />}

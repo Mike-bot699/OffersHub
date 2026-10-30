@@ -1,10 +1,12 @@
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api, qs } from '../api'
 import { date, money, num, pct } from '../format'
 import { useApp } from '../state'
 import { Card, DemoBadge, Empty, ErrorBox, Kpi, Loading, PageHead, Source } from '../ui'
 import type { DiscountSummary } from './DiscountReport'
+import { OffersCalendar } from '../calendar'
+import type { Ev } from '../offerStatus'
 
 type StoreOverview = {
   store_id: number; store_code: string; store_name: string; currency: string; is_demo: boolean; logo: string | null
@@ -56,6 +58,7 @@ function StoreView({ o }: { o: StoreOverview }) {
         <Kpi label="Sales from orders with an offer" value={k ? pct(k.sales_share_with_offer) : '—'} sub="share of net sales" />
         <Kpi label="Discount rate" value={k ? pct(k.discount_rate) : '—'} sub={k ? `${money(k.discounts, cur)} of discounts on gross sales` : undefined} />
       </div>
+      <UpcomingCalendar />
       {o.orders_missing && <div className="notice warning mt"><strong>Order KPIs not available.</strong> {o.orders_missing}</div>}
       <div className="grid g2 mt">
         <Card title="Live offers" extra={<Link to="/offers-plan">Offers Plan →</Link>}>
@@ -100,6 +103,7 @@ function FromReport({ o, dr }: { o: StoreOverview; dr: DiscountSummary }) {
         <Kpi label="Discounts given" value={money(t.all.discounts, cur)} sub={`${pct(t.all.discount_rate)} of discounted orders' gross sales`} />
         <Kpi label="Net sales with a discount" value={money(t.all.net_sales, cur)} />
       </div>
+      <UpcomingCalendar />
       <div className="notice info mt"><small>
         Discount figures from the Shopify "Sales by discount code" report <strong>{date(dr.report!.period_start)} → {date(dr.report!.period_end)}</strong>, not from the period selected above.
         AOV without a discount and the share of orders with a code need the store's total orders, not available from Eli Z yet.
@@ -131,6 +135,8 @@ function FromReport({ o, dr }: { o: StoreOverview; dr: DiscountSummary }) {
 function Portfolio({ rows }: { rows: StoreOverview[] }) {
   if (!rows.length) return <Empty title="No stores yet">Add a store in Settings → Stores.</Empty>
   return (
+    <>
+    <UpcomingCalendar />
     <Card title="By store" extra={<small className="muted">Each store in its own currency — amounts are never added across stores</small>}>
       <div className="table-wrap">
         <table>
@@ -154,5 +160,22 @@ function Portfolio({ rows }: { rows: StoreOverview[] }) {
         </table>
       </div>
     </Card>
+    </>
+  )
+}
+
+/** Next 30 days of the Offers Plan as a compact calendar; clicking opens the full calendar. */
+function UpcomingCalendar() {
+  const { storeId, includeDemo } = useApp()
+  const nav = useNavigate()
+  const q = useQuery({ queryKey: ['events', storeId, 'plan', includeDemo],
+    queryFn: () => api.get<Ev[]>(`/events${qs({ store_id: storeId, include_demo: includeDemo, when: 'plan' })}`) })
+  const open = () => nav('/offers-plan?tab=calendar')
+  return (
+    <div className="mt">
+      <Card title="Next 30 days" extra={<Link to="/offers-plan?tab=calendar">Open calendar →</Link>}>
+        {q.isLoading ? <Loading /> : q.error ? <ErrorBox error={q.error} /> : <OffersCalendar rows={q.data ?? []} onOpen={open} compact />}
+      </Card>
+    </div>
   )
 }
