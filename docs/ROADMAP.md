@@ -48,5 +48,7 @@
   the Overview KPIs (AOV with/without discount, orders with a code, discount rate, top codes), late redemptions and the
   coupon technical status need them. Add `fetch_orders` / `fetch_discounts` to `app/connectors/elizeta.py` once the
   endpoints are known.
+- Dates from Eli Z are already in the business time zone (London): use the platform's order date as the
+  day an order belongs to, with no time-zone conversion.
 - The Eli Z host could not be reached from the environment where this was built; the client is tested against an
   emulated platform shaped like the responses Email Maker reads.
