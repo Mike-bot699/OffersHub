@@ -101,6 +101,8 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
   const editStore = base?.store_id ?? Number(f.store_id ?? storeId ?? stores[0]?.id)
   const report = useQuery({ queryKey: ['discount-report', editStore], enabled: !!editStore && ev !== null,
     queryFn: () => api.get<DiscountSummary>(`/stores/${editStore}/discount-report`) })
+  const collections = useQuery({ queryKey: ['collections', editStore], enabled: !!editStore && ev !== null,
+    queryFn: () => api.get<{ id: number; title: string; products: number; kind: string | null }[]>(`/stores/${editStore}/collections`) })
   const results = useQuery({ queryKey: ['event-results', base?.id], enabled: !!base,
     queryFn: () => api.get<{ measured: Record<string, number | string | boolean> | null }>(`/events/${base!.id}/results`) })
   const save = useMutation({
@@ -154,7 +156,8 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
         <Field label="Channels (comma separated)"><input value={v('channels', base?.channels.join(', '))} onChange={set('channels')} /></Field>
         <Field label="Target offer orders"><input type="number" value={v('target_orders', base?.targets?.offer_orders)} onChange={set('target_orders')} /></Field>
         <Field label="Level"><select value={v('level', base?.level)} onChange={set('level')}><option value="">—</option><option value="store">Store (all)</option><option value="collection">Collection</option><option value="product">Product</option></select></Field>
-        <Field label="Collections / products (comma separated, empty = All)"><input value={v('level_targets', base?.level_targets?.join(', '))} onChange={set('level_targets')} /></Field>
+        <Field label="Collections / products (comma separated, empty = All)"><input list="store-collections" value={v('level_targets', base?.level_targets?.join(', '))} onChange={set('level_targets')} /></Field>
+        <datalist id="store-collections">{collections.data?.map((c) => <option key={c.id} value={c.title}>{`${c.products} products${c.kind === 'smart' ? ' · smart' : ''}`}</option>)}</datalist>
         <Field label="Displayed"><select value={v('display', base?.display)} onChange={set('display')}><option value="">—</option><option value="full_site">Full-Displayed</option><option value="email_only">Email-Only</option><option value="hidden">Hidden</option></select></Field>
         <Field label="Landing page"><input value={v('landing_page', base?.landing_page)} onChange={set('landing_page')} placeholder="https://…" /></Field>
       </div>

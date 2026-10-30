@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.connectors import elizeta as ez
-from app.models import Coupon, DiscountReport, DiscountReportRow, PromoEvent
+from app.models import Collection, Coupon, DiscountReport, DiscountReportRow, PromoEvent
 from app.offers.discount_report import import_discount_report
 from app.services import elizeta as svc
 
@@ -67,6 +67,10 @@ def platform(monkeypatch):
             return httpx.Response(200, json={"sold": []})
         if path == "/api/v1/discounts/codes":
             return httpx.Response(200, json={"data": state["codes"][offset:offset + limit]})
+        if path == "/api/v1/collections":
+            return httpx.Response(200, json={"data": state.get("collections", [])[offset:offset + limit]})
+        if path == "/api/v1/collections/products":
+            return httpx.Response(200, json={"data": state.get("members", [])[offset:offset + limit]})
         if path == "/api/v1/discounts/sales":
             rows = [r for r in state["sales"] if q["from"] <= r["day"] <= q["to"]]
             return httpx.Response(200, json={"data": rows[offset:offset + limit]})
@@ -152,3 +156,69 @@ def test_offset_pagination(db, store, platform, monkeypatch):
     offsets = [r.url.params["offset"] for r in platform["seen"] if r.url.path == "/api/v1/discounts/codes"]
     assert offsets == ["0", "3", "6", "9"]  # 10 codes, pages of 3
     assert db.scalar(select(Coupon).where(Coupon.code == "THANKS20")).raw["codes"] == 6
+
+
+def test_incremental_sales_after_full_history(db, store, platform):
+    """Once the history reaches back, later syncs read only the last week and keep the rest."""
+    platform["state"]["sales"] = [*SALES, {"day": "2025-10-01", "discountName": "WLL10", "discountMethod": "discount_code",
+                                           "appliedDiscounts": -9.5, "discountedOrders": 1, "grossSales": 95, "netSales": 85.5}]
+    svc.configure(db, store, shop_id="26", api_key=KEY)
+    db.commit()
+    svc.sync(db, store, today=TODAY)
+    platform["seen"].clear()
+    platform["state"]["sales"] = [{"day": "2026-10-29", "discountName": "SPOOKLAB", "discountMethod": "discount_code",
+                                   "appliedDiscounts": -15.9, "discountedOrders": 1, "grossSales": 106, "netSales": 90.1}]
+    job = svc.sync(db, store, today=date(2026, 10, 31))
+    assert job.stats["discount_sales"]["mode"] == "incremental"
+    froms = {r.url.params["from"] for r in platform["seen"] if r.url.path == "/api/v1/discounts/sales"}
+    assert min(froms) == "2026-10-21"  # last stored day (28 Oct) minus a week
+    report = db.scalar(select(DiscountReport).where(DiscountReport.source == "elizeta"))
+    rows = db.scalars(select(DiscountReportRow).where(DiscountReportRow.report_id == report.id)).all()
+    assert any(r.day == date(2025, 10, 1) for r in rows)        # older history kept
+    assert not any(r.day == date(2026, 10, 25) for r in rows)   # days in the re-read week replaced
+    assert report.period_end == date(2026, 10, 29)
+
+
+def test_partial_history_is_read_again_in_full(db, store, platform):
+    """A history that does not reach back yet (platform still loading) is never frozen by incremental syncs."""
+    _sync(db, store)  # only late-October days exist
+    platform["seen"].clear()
+    job = svc.sync(db, store, today=date(2026, 10, 31))
+    assert job.stats["discount_sales"]["mode"] == "full"
+
+
+COLLECTIONS = [  # MAU's Halloween landing (calendar: /collections/halloween); a smart collection by tag
+    {"id": 411, "kind": "custom", "title": "Halloween Picks", "handle": "halloween", "published": True, "productCount": 3},
+    {"id": 412, "kind": "smart", "title": "STEM Toys", "handle": "stem-toys", "published": True, "productCount": 2,
+     "rules": [{"column": "tag", "relation": "equals", "condition": "STEM"}], "disjunctive": False},
+    {"id": 413, "kind": "custom", "title": "Gifts", "handle": "gifts", "published": True},
+    {"id": 414, "kind": "custom", "title": "Gifts", "handle": "gifts-2", "published": False},
+]
+MEMBERS = [{"collectionId": 411, "productId": p} for p in (101, 102, 103)] + \
+          [{"collectionId": 412, "productId": p} for p in (104, 105)] + [{"collectionId": 413, "productId": 106}]
+
+
+def test_collections_name_and_size_the_level(db, store, platform):
+    platform["state"]["collections"], platform["state"]["members"] = COLLECTIONS, MEMBERS
+    job = _sync(db, store)
+    assert job.stats["collections"]["collections"] == 4, job.stats
+    c = TestClient(__import__("app.main", fromlist=["create_app"]).create_app())
+    cols = {x["handle"]: x for x in c.get(f"/api/stores/{store.id}/collections").json()}
+    assert cols["stem-toys"]["kind"] == "smart" and cols["stem-toys"]["rules"][0]["condition"] == "STEM"
+    assert cols["gifts"]["products"] == 1  # no productCount: counted from memberships
+    ev = c.post("/api/events", json={"store_id": store.id, "name": "Spooky", "level": "collection",
+                                     "level_targets": ["halloween", "STEM toys", "Gifts", "Ghosts"]}).json()
+    got = {r["target"]: r for r in c.get(f"/api/events/{ev['id']}").json()["level_resolved"]}
+    assert got["halloween"]["title"] == "Halloween Picks" and got["halloween"]["products"] == 3
+    assert got["STEM toys"]["status"] == "matched"
+    assert got["Gifts"]["status"] == "ambiguous"   # two collections called Gifts: no guessing
+    assert got["Ghosts"]["status"] == "not_found"
+
+
+def test_calendar_import_names_collections_from_the_store(db, store, platform):
+    from app.services.offers_import import parse_level
+
+    platform["state"]["collections"], platform["state"]["members"] = COLLECTIONS, MEMBERS
+    _sync(db, store)
+    titles = {c.handle: c.title for c in db.scalars(select(Collection))}
+    assert parse_level("https://www.thelittlelearnerstoys.com/collections/halloween", None, titles) == ("collection", ["Halloween Picks"])

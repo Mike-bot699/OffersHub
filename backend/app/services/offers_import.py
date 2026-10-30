@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import ConflictError, ValidationError
 from app.db.base import utcnow
-from app.models import Coupon, DataNote, ImportBatch, Offer, Product, PromoEvent, Store
+from app.models import Collection, Coupon, DataNote, ImportBatch, Offer, Product, PromoEvent, Store
 from app.models.enums import DataSource, OfferType, VerificationStatus
 from app.offers.classify import classify_offer
 from app.offers.status import set_status
@@ -249,7 +249,8 @@ def _resolve_stores(db, sheets, events_sheet, codes_sheet, report, create_missin
     return out
 
 
-def parse_level(raw, product_titles: dict[str, str] | None = None) -> tuple[str | None, list[str]]:
+def parse_level(raw, product_titles: dict[str, str] | None = None,
+                collection_titles: dict[str, str] | None = None) -> tuple[str | None, list[str]]:
     """Where an offer applies, from the calendar's Collection column.
     Storewide / All -> store; a /products/ URL -> that product (named as in the store's catalog when
     the handle is known); anything else -> collection(s)."""
@@ -271,6 +272,9 @@ def parse_level(raw, product_titles: dict[str, str] | None = None) -> tuple[str 
                 if product_titles and handle in product_titles:
                     targets.append(product_titles[handle])
                     continue
+            elif collection_titles and handle in collection_titles:
+                targets.append(collection_titles[handle])
+                continue
             targets.append(handle.replace("-", " ").title())
         else:
             targets.append(part)
@@ -294,6 +298,7 @@ def _import_events(db, rows, sheet, stores, report: ImportReport, batch, dry_run
         raise ValidationError(f"Events sheet is missing expected columns: {', '.join(missing)}")
     offers_cache: dict[str, Offer] = {}
     titles_cache: dict[int | None, dict[str, str]] = {}
+    collections_cache: dict[int | None, dict[str, str]] = {}
     sales_seen: dict[float, tuple[int, str, str]] = {}
 
     for rn, row in enumerate(rows[1:], start=2):
@@ -405,7 +410,10 @@ def _import_events(db, rows, sheet, stores, report: ImportReport, batch, dry_run
         if store.id not in titles_cache:
             titles_cache[store.id] = {p.handle.lower(): p.title for p in db.scalars(
                 select(Product).where(Product.store_id == store.id, Product.handle.is_not(None)))} if store.id else {}
-        level, level_targets = parse_level(g("collection"), titles_cache[store.id])
+        if store.id not in collections_cache:
+            collections_cache[store.id] = {c.handle: c.title for c in db.scalars(
+                select(Collection).where(Collection.store_id == store.id, Collection.handle.is_not(None)))} if store.id else {}
+        level, level_targets = parse_level(g("collection"), titles_cache[store.id], collections_cache[store.id])
         explicit_level = norm_key(g("level"))
         if explicit_level in ("store", "all", "storewide"):
             level, level_targets = "store", []

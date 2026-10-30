@@ -136,7 +136,7 @@ def sync(db: Session, store: Store, *, trigger: str = "manual", today: date | No
     if integ is None:
         raise ValidationError("This store has no Eli Z settings.")
     today = today or date.today()
-    job = SyncJob(store_id=store.id, integration_id=integ.id, trigger=trigger, resources=["products", "sales", "discount_codes", "discount_sales"],
+    job = SyncJob(store_id=store.id, integration_id=integ.id, trigger=trigger, resources=["products", "sales", "discount_codes", "discount_sales", "collections"],
                   status=SyncStatus.RUNNING, started_at=utcnow(), stats={}, warnings=[*ez.NOT_AVAILABLE.values()])
     db.add(job)
     db.commit()
@@ -197,12 +197,13 @@ def sync(db: Session, store: Store, *, trigger: str = "manual", today: date | No
             db.commit()
 
         failures += sync_discounts(db, store, c, job, today)
+        failures += sync_collections(db, store, c, job)
     finally:
         c.close()
     if failures == 0:
         integ.status, integ.last_error, job.status = IntegrationStatus.CONNECTED, None, SyncStatus.SUCCESS
     else:
-        job.status = SyncStatus.PARTIAL if failures < 4 else SyncStatus.FAILED
+        job.status = SyncStatus.PARTIAL if failures < 5 else SyncStatus.FAILED
         integ.last_error = "Last synchronisation had errors; see sync history."
     job.finished_at = utcnow()
     audit(db, f"sync.{job.status}", "sync_job", job.id, store_id=store.id, actor="system", details=job.stats)
@@ -243,12 +244,13 @@ def sync_discounts(db: Session, store: Store, c: ez.ElizetaClient, job: SyncJob,
     st.last_attempt_at = utcnow()
     try:
         start, end = today - timedelta(days=DISCOUNT_WINDOW_DAYS), today - timedelta(days=1)
-        f = c.fetch_discount_sales(start, end)
+        since = pd.read_from(db, store, start, today)
+        f = c.fetch_discount_sales(since or start, end)
         from app.offers.discount_report import map_rows
 
         if f.rows and not map_rows(f.rows):
             raise ez.ElizetaError(f"Sales by discount came back without a discount name field. Fields: {', '.join(f.fields)}.")
-        stats = pd.store_sales(db, store, f.rows, start, end, groups)
+        stats = pd.store_sales(db, store, f.rows, start, end, groups, since=since)
         if f.rows and not stats.get("by_day"):
             job.warnings = [*job.warnings, "Sales by discount have no day field: offer results cannot be split by "
                                            f"offer dates. Fields: {', '.join(f.fields)}."]
@@ -264,6 +266,29 @@ def sync_discounts(db: Session, store: Store, c: ez.ElizetaClient, job: SyncJob,
     sync_store_offers(db, store, today=today)  # technical status from the new evidence
     db.commit()
     return failures
+
+
+def sync_collections(db: Session, store: Store, c: ez.ElizetaClient, job: SyncJob) -> int:
+    from app.offers.collections import store_collections
+
+    st = _state(db, store.id, "collections")
+    st.last_attempt_at = utcnow()
+    try:
+        cols = c.fetch_collections()
+        if cols.rows and not any(r.get("title") for r in cols.rows):
+            raise ez.ElizetaError(f"Collections came back without a title field. Fields: {', '.join(cols.fields)}.")
+        members = c.fetch_collection_products()
+        stats = store_collections(db, store, cols.rows, members.rows, complete=cols.complete and members.complete)
+        st.last_success_at, st.last_status, st.record_count = utcnow(), SyncStatus.SUCCESS, stats["collections"]
+        job.stats = {**job.stats, "collections": {**stats, "fields": cols.fields, "membership_fields": members.fields}}
+        db.commit()
+        return 0
+    except AppError as exc:
+        db.rollback()
+        _state(db, store.id, "collections").last_status = SyncStatus.FAILED
+        job.stats = {**job.stats, "collections": {"error": redact(exc.message)}}
+        db.commit()
+        return 1
 
 
 def store_sales(db: Session, store: Store, rows: list[ez.SalesRow], start: date, end: date) -> int:

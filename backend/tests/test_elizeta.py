@@ -42,7 +42,8 @@ def fake_platform(products, sold, seen: list):
             return httpx.Response(200, json={"products": products[:2], "nextPageInfo": "cursor2"})
         if req.url.path == "/api/v1/sales-reports":
             return httpx.Response(200, json={"sold": sold})
-        if req.url.path in ("/api/v1/discounts/codes", "/api/v1/discounts/sales"):
+        if req.url.path in ("/api/v1/discounts/codes", "/api/v1/discounts/sales", "/api/v1/collections",
+                            "/api/v1/collections/products"):
             return httpx.Response(200, json={"data": []})
         return httpx.Response(404)
     return handler

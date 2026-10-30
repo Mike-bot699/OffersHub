@@ -12,7 +12,15 @@ from app.models.commerce import (
     Variant,
 )
 from app.models.integration import ImportBatch, Integration, SyncJob, SyncState
-from app.models.offers import Coupon, DiscountPlacement, DiscountReport, DiscountReportRow, Offer, PromoEvent
+from app.models.offers import (
+    Collection,
+    Coupon,
+    DiscountPlacement,
+    DiscountReport,
+    DiscountReportRow,
+    Offer,
+    PromoEvent,
+)
 from app.models.store import AppSetting, Store, StoreObjective
 from app.models.strategy import (
     ActionProposal,
@@ -27,6 +35,7 @@ __all__ = [
     "ActionProposal",
     "AppSetting",
     "AuditLog",
+    "Collection",
     "CostRecord",
     "Coupon",
     "Customer",

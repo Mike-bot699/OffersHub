@@ -30,8 +30,8 @@ export function StoresSettings() {
         <>
           <small className="muted">Preview only — how a store's card looks once added (saving is disabled in the preview):</small>
           <StoreCard s={{ id: 0, name: 'Example store', code: 'EX', logo: null, product_host: null, currency: 'USD', is_demo: false, tag_min_ranked_products: null,
-            elizeta: { status: 'not_configured', shop_id: null, has_key: false, key_hint: null, last_verified_at: null, last_error: null, provides: ['products', 'sales_reports'],
-              not_available: { orders: 'Eli Z has no confirmed orders endpoint yet.', discounts: 'Eli Z has no confirmed discount-codes endpoint yet.' } } }} />
+            elizeta: { status: 'not_configured', shop_id: null, has_key: false, key_hint: null, last_verified_at: null, last_error: null, provides: ['products', 'sales_reports', 'discount_sales', 'discount_codes', 'collections'],
+              not_available: { orders: 'Eli Z has no orders list.' } } }} />
         </>
       )}
       {adding ? <AddStore onDone={() => setAdding(false)} /> : <div><button className="primary" onClick={() => setAdding(true)}>Add store</button></div>}
@@ -89,14 +89,14 @@ function StoreCard({ s }: { s: StoreSettings }) {
       </div>
       <ErrorBox error={save.error ?? icon.error ?? verify.error ?? sync.error ?? disconnect.error} />
       {sync.data && (sync.data.finished ? (
-        <div className={`notice ${sync.data.status === 'success' ? 'info' : 'critical'} mt`}><small>
+        <div className={`notice ${sync.data.status === 'success' ? 'info' : sync.data.status === 'partial' ? 'warning' : 'critical'} mt`}><small>
           Sync {sync.data.status}. {Object.entries(sync.data.stats ?? {}).map(([k, v]) => `${k}: ${v.error ? `error — ${String(v.error)}` : Object.entries(v).map(([a, b]) => `${a} ${typeof b === 'object' ? JSON.stringify(b) : b}`).join(', ')}`).join(' · ')}
         </small></div>
       ) : <div className="notice info mt"><small>Sync started. Products and tags update in a minute.</small></div>)}
       {ez.last_error && <div className="error-box mt">{ez.last_error}</div>}
       <small className="muted" style={{ display: 'block', marginTop: 8 }}>
-        Last verified: {ez.last_verified_at ? dateTime(ez.last_verified_at) : 'never'}. Eli Z provides: catalog and product sales.
-        Not available yet: {Object.keys(ez.not_available).join(' and ')} — {Object.values(ez.not_available)[0]}
+        Last verified: {ez.last_verified_at ? dateTime(ez.last_verified_at) : 'never'}. Eli Z provides: catalog, product sales, discount codes, sales by discount (daily) and collections.
+        Not available: {Object.values(ez.not_available).join(' ')}
       </small>
     </Card>
   )

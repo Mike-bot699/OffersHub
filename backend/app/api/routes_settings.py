@@ -181,6 +181,18 @@ def refresh_product_tags(store_id: int, db: Session = DB):
     return res
 
 
+@router.get("/stores/{store_id}/collections")
+def list_collections(store_id: int, db: Session = DB):
+    """Collections read from the platform (title, handle, kind, product count)."""
+    from app.models import Collection
+
+    s = get_store(db, store_id)
+    return [{"id": c.id, "title": c.title, "handle": c.handle, "kind": c.kind, "published": c.published,
+             "products": c.product_count if c.product_count is not None else len(c.product_ids or []),
+             "rules": c.rules, "disjunctive": c.disjunctive, "synced_at": c.synced_at.isoformat() if c.synced_at else None}
+            for c in db.scalars(select(Collection).where(Collection.store_id == s.id).order_by(Collection.title))]
+
+
 @router.get("/stores/{store_id}/catalog")
 def live_catalog(store_id: int, db: Session = DB):
     """Live products only (active in the catalog), with performance and manual tags."""

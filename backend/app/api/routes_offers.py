@@ -10,6 +10,7 @@ from app.api.common import DB, Period, get_store, to_dict
 from app.core.errors import NotFoundError, ValidationError
 from app.models import Coupon, Offer, PromoEvent, Store
 from app.models.enums import OFFER_STATUSES, DataSource, OfferType, TechnicalStatus
+from app.offers.collections import attach_levels
 from app.offers.discount_report import offer_results
 from app.offers.monitoring import alerts, measure_event, offer_history_stats, verify_event
 from app.offers.performance import discount_analysis, offer_performance
@@ -212,6 +213,7 @@ def list_events(store_id: int | None = None, status: str | None = None, start: d
     if needs_review:
         rows = [r for r in rows if r["needs_review"]]
     offer_results(db, rows)
+    attach_levels(db, rows)
     return rows
 
 
@@ -237,6 +239,7 @@ def live_offers(store_id: int | None = None, include_demo: bool = False, recent_
         if not final or recent or row["conflict_open"]:
             out.append(row)
     offer_results(db, out)
+    attach_levels(db, out)
     return out
 
 
@@ -246,6 +249,7 @@ def get_event(event_id: int, db: Session = DB):
     s = db.get(Store, e.store_id)
     row = _event_out(db, e, s.code, s.currency, s.is_demo)
     offer_results(db, [row])
+    attach_levels(db, [row])
     return row
 
 

@@ -182,3 +182,24 @@ class DiscountPlacement(Base):
     placements: Mapped[list[Any]] = mapped_column(default=list)
     notes: Mapped[str | None] = mapped_column(Text)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Collection(Base):
+    """A store collection read from the platform. For smart collections `rules` are the definition;
+    `product_ids` is the membership at the last platform sync."""
+
+    __tablename__ = "collections"
+    __table_args__ = (UniqueConstraint("store_id", "source_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id", ondelete="CASCADE"), index=True)
+    source_id: Mapped[str] = mapped_column(String(64))  # Shopify collection id
+    title: Mapped[str] = mapped_column(String(300))
+    handle: Mapped[str | None] = mapped_column(String(300))
+    kind: Mapped[str | None] = mapped_column(String(16))  # custom | smart
+    published: Mapped[bool | None] = mapped_column()
+    product_count: Mapped[int | None] = mapped_column(Integer)
+    rules: Mapped[list[Any]] = mapped_column(default=list)
+    disjunctive: Mapped[bool | None] = mapped_column()
+    product_ids: Mapped[list[Any]] = mapped_column(default=list)  # Shopify product ids
+    synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

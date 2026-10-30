@@ -26,6 +26,7 @@ export type Ev = {
   has_banner: boolean; banner_kind: string | null; banner_filename: string | null
   duration_days: number | null; code_active_after_end: boolean
   linked_discounts: string[]; tags: string[]
+  level_resolved?: null | { target: string; status: 'matched' | 'ambiguous' | 'not_found'; title?: string; products?: number; kind?: string; published?: boolean | null }[]
   discount_results: null | {
     status: 'ok' | 'no_match' | 'after_report'; report_period?: [string, string]; report_end?: string; by_day?: boolean
     matched?: string[]; missing?: string[]; orders?: number; discounts?: number; net_sales?: number; aov?: number | null
@@ -239,10 +240,23 @@ const DISPLAY_TEXT: Record<string, string> = { full_site: 'Full-Displayed', emai
 
 const LEVELS: [string, string][] = [['store', 'Store (all)'], ['collection', 'Collection'], ['product', 'Product'], ['', 'Not set']]
 
-export function LevelCell({ e }: { e: Pick<Ev, 'level' | 'level_targets'> }) {
+export function LevelCell({ e }: { e: Pick<Ev, 'level' | 'level_targets' | 'level_resolved'> }) {
   if (!e.level) return <span className="muted">—</span>
   const what = e.level === 'store' ? 'Store' : e.level === 'collection' ? 'Collection' : 'Product'
   const targets = e.level === 'store' || !e.level_targets.length ? 'All' : e.level_targets.join(', ')
+  if (e.level_resolved?.length) {
+    // Collections resolved against the store (synced from the platform): name, size, or why not matched.
+    return (
+      <span><span className="badge">{what}</span>
+        <small className="clamp3" title={targets}>{e.level_resolved.map((r, i) => (
+          <span key={i}>{i > 0 && ', '}
+            {r.status === 'matched'
+              ? <span title={`${r.kind === 'smart' ? 'Smart' : 'Custom'} collection${r.published === false ? ' · not published' : ''}`}>{r.title} <span className="muted">· {r.products}</span></span>
+              : <span className="warning-ink" title={r.status === 'ambiguous' ? 'More than one store collection has this name' : 'No store collection with this name or handle'}>{r.target} ({r.status === 'ambiguous' ? 'ambiguous' : 'not in store'})</span>}
+          </span>))}</small>
+      </span>
+    )
+  }
   return <span title={targets}><span className="badge">{what}</span> <small className="clamp3">{targets}</small></span>
 }
 

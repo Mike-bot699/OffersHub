@@ -44,11 +44,25 @@
   catalog (`/api/v1/products`, cursor pagination, status filter re-applied on every page) and the last 30 days of
   product sales (`/api/v1/sales-reports`), product performance tags (Best Seller / Top Seller / Popular / Free) with
   the same rule as Email Maker plus a configurable minimum of products with sales.
-- Not available yet: orders and discount codes. Eli Z has no public documentation and no confirmed endpoint for them;
-  the Overview KPIs (AOV with/without discount, orders with a code, discount rate, top codes), late redemptions and the
-  coupon technical status need them. Add `fetch_orders` / `fetch_discounts` to `app/connectors/elizeta.py` once the
-  endpoints are known.
+- Discounts and collections (endpoints added by the platform on 2026-10-30, `app/offers/platform_discounts.py`,
+  `app/offers/collections.py`):
+  - `/api/v1/discounts/codes`: every code with campaign and status. Campaigns with 5+ codes (single-use codes from
+    automations) are stored as one discount named after the campaign. The list is evidence for the technical
+    status and takes precedence over an imported Shopify export; only a complete list proves a code does not exist.
+    Automatic discounts are not in it (the app lacks `read_discounts`), so they are never read as missing.
+  - `/api/v1/discounts/sales`: one row per day and discount, kept as one rolling report per store (source
+    `elizeta`). Full read of 400 days on the first sync, weekly, or while the history does not reach back yet;
+    otherwise the last 7 days are re-read. Sales of grouped codes take the campaign's name. Its period is the days
+    actually present. Each offer's results use the report covering its start date, so an older Shopify export
+    still serves older offers. `grossSales` is the whole order's gross on every discount it used (as in Shopify):
+    use orders for volumes.
+  - `/api/v1/collections` + `/collections/products`: collections with kind, rules and product membership. Collection
+    Level targets are resolved by handle or title; a name matching two collections is reported as ambiguous.
+- Not available: an orders list. AOV without a discount and the share of all orders using a code need the store's
+  total orders.
 - Dates from Eli Z are already in the business time zone (London): use the platform's order date as the
   day an order belongs to, with no time-zone conversion.
 - The Eli Z host could not be reached from the environment where this was built; the client is tested against an
-  emulated platform shaped like the responses Email Maker reads.
+  emulated platform shaped like the responses Email Maker reads and, for discounts and collections, like the
+  developer's description. Field names are read in camelCase or snake_case and every sync records the fields it
+  received (`fields` in the sync stats); an unrecognised shape writes nothing and reports the fields.

@@ -12,17 +12,20 @@ Declared choices:
 """
 
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.db.base import utcnow
-from app.models import Coupon, Store
+from app.models import Coupon, DiscountReport, DiscountReportRow, Store
 from app.offers.discount_report import map_rows, parse_rows, replace_platform_report
 
 SOURCE = "elizeta"
 GROUP_MIN = 5
+REFRESH_DAYS = 7      # an incremental sync re-reads the last week (late orders, refunds)
+FULL_EVERY_DAYS = 7   # and the whole window is re-read weekly
+HISTORY_SLACK_DAYS = 31
 VALUE_TYPES = {"percentage": "percent", "percent": "percent", "fixed_amount": "fixed", "fixed": "fixed",
                "free_shipping": "free_shipping", "shipping": "free_shipping"}
 
@@ -105,17 +108,45 @@ def store_codes(db: Session, store: Store, rows: list[dict], *, complete: bool) 
             "removed": removed, "complete": complete}
 
 
-def store_sales(db: Session, store: Store, rows: list[dict], start: date, end: date, groups: dict[str, str]) -> dict:
-    """Sales by discount and day into the store's rolling platform report."""
+def platform_report(db: Session, store: Store) -> DiscountReport | None:
+    return db.scalar(select(DiscountReport).where(DiscountReport.store_id == store.id, DiscountReport.source == SOURCE))
+
+
+def read_from(db: Session, store: Store, window_start: date, today: date) -> date | None:
+    """First day to read, or None for the whole window: no report yet, a weekly full read due, or a
+    history that does not reach back to the window yet (the platform was still loading it)."""
+    rep = platform_report(db, store)
+    if rep is None or not rep.by_day or rep.period_start > window_start + timedelta(days=HISTORY_SLACK_DAYS):
+        return None
+    made = rep.created_at.date() if rep.created_at else None
+    if made is None or (today - made).days >= FULL_EVERY_DAYS:
+        return None
+    return max(rep.period_end - timedelta(days=REFRESH_DAYS), window_start)
+
+
+def store_sales(db: Session, store: Store, rows: list[dict], start: date, end: date, groups: dict[str, str],
+                *, since: date | None = None) -> dict:
+    """Sales by discount and day into the store's rolling platform report. With `since`, only the
+    days from `since` are replaced and the earlier ones kept."""
     mapped = map_rows(rows)
     for r in mapped:
         r["name"] = groups.get(str(r["name"]).strip().upper(), r["name"])
     parsed = parse_rows(mapped)
     days = sorted({p["day"] for p in parsed if p["day"]})
+    rep = platform_report(db, store)
+    if since and rep is not None:
+        db.execute(delete(DiscountReportRow).where(DiscountReportRow.report_id == rep.id, DiscountReportRow.day >= since))
+        db.add_all([DiscountReportRow(report_id=rep.id, store_id=store.id, **p) for p in parsed])
+        if days:
+            rep.period_end = max(rep.period_end, days[-1])
+        db.flush()
+        return {"mode": "incremental", "since": since.isoformat(), "rows": len(parsed), "days": len(days),
+                "first_day": rep.period_start.isoformat(), "last_day": rep.period_end.isoformat(), "by_day": rep.by_day,
+                "orders": sum(p["orders"] for p in parsed)}
     if not parsed:
-        return {"rows": 0}
+        return {"mode": "full", "rows": 0}
     # The period is the days actually present: a history still loading must not look like zero sales.
     first, last = (days[0], days[-1]) if days else (start, end)
     report = replace_platform_report(db, store, parsed, first, last)
-    return {"rows": len(parsed), "first_day": first.isoformat(), "last_day": last.isoformat(), "days": len(days),
+    return {"mode": "full", "rows": len(parsed), "first_day": first.isoformat(), "last_day": last.isoformat(), "days": len(days),
             "by_day": report.by_day, "orders": sum(p["orders"] for p in parsed)}

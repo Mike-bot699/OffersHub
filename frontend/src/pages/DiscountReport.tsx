@@ -93,7 +93,7 @@ function ReportFor({ store }: { store: StoreRow }) {
               </table>
             </div>
             <Source>
-              Shopify "Sales by discount code" ({d.report.filename}). {d.note}
+              {d.report.source === 'elizeta' ? 'Sales by discount from Eli Z (daily, synced every night)' : `Shopify "Sales by discount code" (${d.report.filename})`}. {d.note}
               {Object.keys(d.grouped).length > 0 && ` Grouped: ${Object.entries(d.grouped).map(([g, n]) => `${g} (${n})`).join(', ')}.`}
               {d.excluded_tests.length > 0 && ` Test codes excluded: ${d.excluded_tests.join(', ')}.`}
             </Source>
