@@ -4,7 +4,7 @@ import { api, qs } from '../api'
 import { date, label, money, num, pct } from '../format'
 import { useApp } from '../state'
 import { Card, Drawer, Empty, ErrorBox, Field, Loading, PageHead, Source, Status, Tabs } from '../ui'
-import { OFFER_STATUSES, OfferStatusBadge, PlanTable, StatusPanel, TechStatusBadge, type Ev } from '../offerStatus'
+import { OFFER_STATUSES, OfferStatusBadge, PlanTable, StatusPanel, SUGGESTED_TAGS, TagChip, TechStatusBadge, suggestTags, type Ev } from '../offerStatus'
 import { BannerView, useBanner } from '../banner'
 import { DiscountCodes, DiscountImport, DiscountListImport, type DiscountSummary } from './DiscountReport'
 
@@ -85,6 +85,7 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
   const [fresh, setFresh] = useState<Ev | null>(null)
   const base = isNew || ev === null ? null : fresh && fresh.id === ev.id ? fresh : ev
   const [f, setF] = useState<Record<string, string>>({})
+  const [tags, setTags] = useState<string[] | null>(null)  // null = not edited
   const v = (k: string, fallback: unknown) => (k in f ? f[k] : fallback == null ? '' : String(fallback))
   const editStore = base?.store_id ?? Number(f.store_id ?? storeId ?? stores[0]?.id)
   const report = useQuery({ queryKey: ['discount-report', editStore], enabled: !!editStore && ev !== null,
@@ -102,10 +103,11 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
         else if (k === 'target_orders') body.targets = { ...(base?.targets ?? {}), offer_orders: num(val) }
         else body[k] = val === '' ? null : val
       }
+      if (tags !== null) body.tags = tags
       if (isNew) return api.post('/events', { store_id: Number(f.store_id ?? storeId ?? stores[0]?.id), name: f.name ?? '', ...body })
       return api.patch(`/events/${base!.id}`, body)
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['events'] }); setF({}); setFresh(null); onClose() },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['events'] }); setF({}); setTags(null); setFresh(null); onClose() },
   })
   const verify = useMutation({ mutationFn: () => api.post<{ status: string; findings: string[] }>(`/events/${base!.id}/verify`),
     onSuccess: async () => { qc.invalidateQueries({ queryKey: ['events'] }); qc.invalidateQueries({ queryKey: ['live-offers'] }); setFresh(await api.get<Ev>(`/events/${base!.id}`)) } })
@@ -114,7 +116,7 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
   if (ev === null) return null
   const m = results.data?.measured
   return (
-    <Drawer open onClose={() => { setF({}); setFresh(null); onClose() }} title={<h2>{isNew ? 'New offer' : base!.name}</h2>}>
+    <Drawer open onClose={() => { setF({}); setTags(null); setFresh(null); onClose() }} title={<h2>{isNew ? 'New offer' : base!.name}</h2>}>
       {base && (
         <div className="row" style={{ marginBottom: 10 }}>
           <span className="badge">{base.store_code}</span><OfferStatusBadge status={base.status} /><TechStatusBadge ev={base} />
@@ -126,6 +128,7 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
       {base?.data_issues?.length ? <div className="notice warning" style={{ marginBottom: 10 }}><strong>Data issues found on import</strong><ul className="tight">{base.data_issues.map((d, i) => <li key={i}>{d}</li>)}</ul></div> : null}
       <datalist id="report-codes">{report.data?.lines?.filter((l) => l.method !== 'automatic' && l.codes_in_group <= 1).map((l) => <option key={l.name} value={l.name}>{`${l.orders} orders`}</option>)}</datalist>
       <datalist id="report-auto">{report.data?.lines?.filter((l) => l.method === 'automatic').map((l) => <option key={l.name} value={l.name}>{`${l.orders} orders`}</option>)}</datalist>
+      <TagsField value={tags ?? base?.tags ?? []} text={[v('name', base?.name), v('description', base?.description), v('level_targets', base?.level_targets?.join(', ')), v('offer_text', base?.offer_text)].join(' ')} onChange={setTags} />
       <div className="form-grid">
         {isNew && <Field label="Store"><select value={f.store_id ?? storeId ?? stores[0]?.id ?? ''} onChange={set('store_id')}>{stores.filter((s) => !s.is_demo).map((s) => <option key={s.id} value={s.id}>{s.code}</option>)}</select></Field>}
         <Field label="Name"><input value={v('name', base?.name)} onChange={set('name')} /></Field>
@@ -176,7 +179,7 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
         </>
       )}
       <div className="row mt">
-        <button className="primary" onClick={() => save.mutate()} disabled={save.isPending || (!isNew && Object.keys(f).length === 0)}>Save</button>
+        <button className="primary" onClick={() => save.mutate()} disabled={save.isPending || (!isNew && Object.keys(f).length === 0 && tags === null)}>Save</button>
         {base && <button className="danger" onClick={() => confirm(`Delete event "${base.name}"?`) && del.mutate()}>Delete</button>}
       </div>
       {isNew && <div className="notice info mt"><small>Technical status starts as <strong>Not verified</strong>: it is checked against the connected store's synced discounts by the offer's coupon codes.</small></div>}
@@ -359,5 +362,39 @@ function ImportWorkbook() {
         </div>
       )}
     </Card>
+  )
+}
+
+/** Event tags (Halloween, BFCM…): free text with suggestions; tags already used on other offers come first. */
+function TagsField({ value, text: source, onChange }: { value: string[]; text: string; onChange: (t: string[]) => void }) {
+  const qc = useQueryClient()
+  const [text, setText] = useState('')
+  const used = [...new Set(qc.getQueriesData<Ev[]>({ queryKey: ['events'] }).flatMap(([, d]) => (d ?? []).flatMap((e) => e.tags ?? [])))]
+  const options = [...new Set([...used, ...SUGGESTED_TAGS])].filter((t) => !value.some((x) => x.toLowerCase() === t.toLowerCase()))
+  const add = (t: string) => {
+    const tag = t.trim().replace(/\s+/g, ' ').slice(0, 40)
+    if (tag && !value.some((x) => x.toLowerCase() === tag.toLowerCase())) onChange([...value, tag])
+    setText('')
+  }
+  const hints = suggestTags(source, value)
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <Field label="Tags">
+        <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+          {value.map((t) => <TagChip key={t} tag={t} onRemove={() => onChange(value.filter((x) => x !== t))} />)}
+          <input list="event-tags" value={text} placeholder="Add a tag, e.g. Halloween" style={{ flex: '1 1 180px' }}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); add(text) } }}
+            onBlur={() => text.trim() && add(text)} />
+          <datalist id="event-tags">{options.map((t) => <option key={t} value={t} />)}</datalist>
+        </div>
+      </Field>
+      {hints.length > 0 && (
+        <div className="row" style={{ gap: 6, marginTop: 6 }}>
+          <small className="muted">Suggested from this offer:</small>
+          {hints.map((t) => <button key={t} type="button" className="chip" onClick={() => add(t)}>+ {t}</button>)}
+        </div>
+      )}
+    </div>
   )
 }

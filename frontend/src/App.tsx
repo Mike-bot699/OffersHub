@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Navigate, NavLink, Route, Routes } from 'react-router-dom'
+import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './api'
 import { useApp } from './state'
@@ -18,6 +18,9 @@ import Opportunities from './pages/Opportunities'
 import Experiments from './pages/Experiments'
 import Integrations from './pages/Integrations'
 import Settings from './pages/Settings'
+
+// Pages built around one wide table use the full window width.
+const WIDE_PAGES = ['/offers-plan', '/offers-db', '/analysis']
 import Connect from './pages/Connect'
 
 // Main work: offers, discounts and order value. Secondary: data sources and set-up.
@@ -38,6 +41,7 @@ const NAV_BETA = [
 
 export default function App() {
   const { stores, storeId, days, includeDemo, set, store } = useApp()
+  const { pathname } = useLocation()
   const auth = useQuery({ queryKey: ['auth'], queryFn: () => api.get<{ mode: string; authenticated: boolean }>('/auth/status') })
   const [locked, setLocked] = useState(false)
   useEffect(() => {
@@ -101,7 +105,7 @@ export default function App() {
             </div>
           </div>
         )}
-        <main className="content">
+        <main className={`content ${WIDE_PAGES.includes(pathname) ? 'wide' : ''}`}>
           <Routes>
             <Route path="/" element={<Overview />} />
             <Route path="/basket" element={<Basket />} />

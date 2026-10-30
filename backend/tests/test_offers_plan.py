@@ -86,3 +86,14 @@ def test_level_targets_one_per_line_with_catalog_names():
     level, targets = parse_level(cell, {"tiny-biker-anti-tip-light-sound-motorcycle": "Tiny Biker Anti-Tip Light & Sound Motorcycle"})
     assert level == "product"
     assert targets == ["Photo Reel Viewfinder", "Tiny Biker Anti-Tip Light & Sound Motorcycle", "Wishcard and Wrapping Paper"]
+
+
+def test_event_tags_cleaned_and_editable(db, store):
+    c = _client()
+    ev = c.post("/api/events", json={"store_id": store.id, "name": "Spooky week",
+                                     "tags": [" Halloween ", "halloween", "", "BFCM"]}).json()
+    assert ev["tags"] == ["Halloween", "BFCM"]  # trimmed, case-insensitive duplicate and empty dropped
+    ev = c.patch(f"/api/events/{ev['id']}", json={"tags": ["Christmas"]}).json()
+    assert ev["tags"] == ["Christmas"]
+    assert c.patch(f"/api/events/{ev['id']}", json={"name": "Renamed"}).json()["tags"] == ["Christmas"]  # untouched
+    assert c.patch(f"/api/events/{ev['id']}", json={"tags": []}).json()["tags"] == []

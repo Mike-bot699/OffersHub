@@ -68,6 +68,7 @@ class PromoEvent(TimestampMixin, Base):
     coupon_codes: Mapped[list[Any]] = mapped_column(default=list)
     # Automatic discounts (no code) linked by hand to this offer, by their name in the discount report.
     linked_discounts: Mapped[list[Any]] = mapped_column(default=list)
+    tags: Mapped[list[Any]] = mapped_column(default=list)  # user labels for quick reading, e.g. Halloween, BFCM
     threshold_amount: Mapped[float | None] = mapped_column(Money)
     threshold_text: Mapped[str | None] = mapped_column(String(100))
     bonus: Mapped[str | None] = mapped_column(Text)

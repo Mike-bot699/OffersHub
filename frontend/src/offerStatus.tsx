@@ -25,7 +25,7 @@ export type Ev = {
   landing_page: string | null; articles: string | null; banner_message: string | null
   has_banner: boolean; banner_kind: string | null; banner_filename: string | null
   duration_days: number | null; code_active_after_end: boolean
-  linked_discounts: string[]
+  linked_discounts: string[]; tags: string[]
   discount_results: null | {
     status: 'ok' | 'no_match' | 'after_report'; report_period?: [string, string]; report_end?: string; by_day?: boolean
     matched?: string[]; missing?: string[]; orders?: number; discounts?: number; net_sales?: number; aov?: number | null
@@ -88,7 +88,8 @@ type Row = Ev & { _status: number; _tech: string; _start: string }
 export function OffersTable({ rows, onOpen, showResults = false, empty }: { rows: Ev[]; onOpen: (e: Ev) => void; showResults?: boolean; empty: ReactNode }) {
   const [filter, setFilter] = useState<string[]>([])
   const [reviewOnly, setReviewOnly] = useState(false)
-  const shown = rows.filter((r) => (filter.length === 0 || filter.includes(r.status ?? 'not_set')) && (!reviewOnly || r.needs_review))
+  const { tagChips, tagMatch } = useTagFilter(rows)
+  const shown = rows.filter((r) => (filter.length === 0 || filter.includes(r.status ?? 'not_set')) && (!reviewOnly || r.needs_review) && tagMatch(r))
   const { sorted, th } = useSort<Row>(shown.map((r) => ({ ...r, _status: statusRank(r.status), _tech: r.technical_status, _start: r.start_date ?? '' })), '_start')
   const toReview = rows.filter((r) => r.needs_review).length
   return (
@@ -100,6 +101,7 @@ export function OffersTable({ rows, onOpen, showResults = false, empty }: { rows
           <span className="secondary">Needs review only ({toReview})</span>
         </label>
       </div>
+      {tagChips}
       {!sorted.length ? empty : (
         <div className="table-wrap" style={{ maxHeight: 640 }}>
           <table>
@@ -253,10 +255,68 @@ export function TechCell({ e }: { e: Ev }) {
 type PlanRow = Ev & { _status: number; _start: string; _end: string; _dur: number; _store: string; _name: string }
 
 /** Offers Plan / Offers DB table, with the columns of the marketing calendar. */
+/** Common event tags, offered as suggestions; any other text is allowed. */
+export const SUGGESTED_TAGS = ['Halloween', 'BFCM', 'Black Friday', 'Cyber Monday', 'Christmas', 'New Year', "Valentine's Day",
+  'Easter', "Mother's Day", "Father's Day", 'Summer', 'Back to School', 'Prime Day', 'Birthday', 'Evergreen', 'Clearance']
+
+// Fixed hues for the main seasonal events so they read the same everywhere; other tags get a stable hue from their text.
+const TAG_HUES: Record<string, number> = { halloween: 28, bfcm: 0, 'black friday': 0, 'cyber monday': 200, christmas: 140, 'new year': 50,
+  "valentine's day": 335, easter: 280, "mother's day": 315, "father's day": 215, summer: 45, 'back to school': 190, 'prime day': 205 }
+
+export function tagHue(t: string) {
+  const k = t.toLowerCase()
+  if (k in TAG_HUES) return TAG_HUES[k]
+  let h = 0
+  for (const ch of k) h = (h * 31 + ch.charCodeAt(0)) % 360
+  return h
+}
+
+export function TagChip({ tag, onRemove }: { tag: string; onRemove?: () => void }) {
+  return (
+    <span className="tag-chip" style={{ ['--h' as string]: tagHue(tag) }}>
+      {tag}{onRemove && <button type="button" aria-label={`Remove ${tag}`} onClick={onRemove}>×</button>}
+    </span>
+  )
+}
+
+/** Tag suggestions for an event whose name, description or collections mention a known one (shown for a click, never applied on their own). */
+export function suggestTags(name: string, have: string[]) {
+  const n = name.toLowerCase()
+  const hits = SUGGESTED_TAGS.filter((t) => n.includes(t.toLowerCase().replace("'s day", '')))
+  if (/black\s*friday|\bbf\b|cyber/.test(n)) hits.push('BFCM')
+  if (/xmas|natale/.test(n)) hits.push('Christmas')
+  return [...new Set(hits)].filter((t) => !have.some((h) => h.toLowerCase() === t.toLowerCase()))
+}
+
+/** Tag filter chips for an offers table (only shown once some offer has a tag); "No tag" finds offers still to tag. */
+function useTagFilter(rows: Ev[]) {
+  const [tagFilter, setTagFilter] = useState<string[]>([])
+  const allTags = [...new Set(rows.flatMap((r) => r.tags ?? []))].sort((a, b) => a.localeCompare(b))
+  const untagged = rows.filter((r) => !r.tags?.length).length
+  const tagMatch = (r: Ev) => tagFilter.length === 0 || tagFilter.some((t) => (t === '' ? !r.tags?.length : r.tags?.includes(t)))
+  const tagChips = (
+    allTags.length > 0 && (
+        <div className="chips" style={{ marginBottom: 10 }}>
+          <small className="muted" style={{ alignSelf: 'center' }}>Tags</small>
+          {allTags.map((t) => (
+            <button key={t} type="button" className={`chip tag-filter ${tagFilter.includes(t) ? 'on' : ''}`} style={{ ['--h' as string]: tagHue(t) }}
+              onClick={() => setTagFilter(tagFilter.includes(t) ? tagFilter.filter((x) => x !== t) : [...tagFilter, t])}>
+              {t} <small className="muted">{rows.filter((r) => r.tags?.includes(t)).length}</small>
+            </button>))}
+          {untagged > 0 && <button type="button" className={`chip ${tagFilter.includes('') ? 'on' : ''}`}
+            onClick={() => setTagFilter(tagFilter.includes('') ? tagFilter.filter((x) => x !== '') : [...tagFilter, ''])}>No tag <small className="muted">{untagged}</small></button>}
+          {tagFilter.length > 0 && <button type="button" className="ghost small" onClick={() => setTagFilter([])}>Clear</button>}
+        </div>
+    )
+  )
+  return { tagChips, tagMatch }
+}
+
 export function PlanTable({ rows, onOpen, showResults = false, empty }: { rows: Ev[]; onOpen: (e: Ev) => void; showResults?: boolean; empty: ReactNode }) {
   const [filter, setFilter] = useState<string[]>([])
   const [reviewOnly, setReviewOnly] = useState(false)
-  const shown = rows.filter((r) => (filter.length === 0 || filter.includes(r.status ?? 'not_set')) && (!reviewOnly || r.needs_review))
+  const { tagChips, tagMatch } = useTagFilter(rows)
+  const shown = rows.filter((r) => (filter.length === 0 || filter.includes(r.status ?? 'not_set')) && (!reviewOnly || r.needs_review) && tagMatch(r))
   const { sorted, th } = useSort<PlanRow>(shown.map((r) => ({ ...r, _status: statusRank(r.status), _start: r.start_date ?? '', _end: r.end_date ?? '',
     _dur: r.duration_days ?? -1, _store: r.store_code, _name: r.name })), '_start', !!showResults)
   const toReview = rows.filter((r) => r.needs_review).length
@@ -269,11 +329,12 @@ export function PlanTable({ rows, onOpen, showResults = false, empty }: { rows: 
           <span className="secondary">Needs review only ({toReview})</span>
         </label>
       </div>
+      {tagChips}
       {!sorted.length ? empty : (
-        <div className="table-wrap plan-table" style={{ maxHeight: 680 }}>
+        <div className="table-wrap plan-table">
           <table>
             <thead><tr>
-              {th('_start', 'Start Date', false)}{th('_end', 'End Date', false)}{th('_dur', 'Duration')}{th('_name', 'Name', false)}
+              {th('_start', 'Start Date', false)}{th('_end', 'End Date', false)}{th('_dur', 'Duration')}{th('_name', 'Name', false, 'name-cell')}
               {th('_store', 'Store', false)}{th('_status', 'Status', false)}<th>Description</th><th>Level</th><th>Type</th><th>Offer</th>
               <th>Discount Code</th><th>Code results</th><th className="num">Threshold</th><th>Technical Status</th><th>Bonus</th><th>Landing Page</th><th>Articles</th><th>Displayed</th>
               {showResults && <><th className="num">Offer orders</th><th className="num">Share of orders</th><th className="num">Offer sales</th></>}
@@ -283,8 +344,9 @@ export function PlanTable({ rows, onOpen, showResults = false, empty }: { rows: 
                 <td style={{ whiteSpace: 'nowrap' }}>{date(e.start_date)}</td>
                 <td style={{ whiteSpace: 'nowrap' }}>{date(e.end_date)}</td>
                 <td className="num" style={{ whiteSpace: 'nowrap' }}>{e.duration_days != null ? `${e.duration_days}d` : '—'}</td>
-                <td style={{ minWidth: 160 }}><strong>{e.name}</strong>
-                  {e.data_issues?.length > 0 && <span className="badge warning" title={e.data_issues.join('\n')} style={{ marginLeft: 6 }}>▲ {e.data_issues.length}</span>}</td>
+                <td className="name-cell"><strong>{e.name}</strong>
+                  {e.data_issues?.length > 0 && <span className="badge warning" title={e.data_issues.join('\n')} style={{ marginLeft: 6 }}>▲ {e.data_issues.length}</span>}
+                  {e.tags?.length > 0 && <div className="tag-row">{e.tags.map((t) => <TagChip key={t} tag={t} />)}</div>}</td>
                 <td>{e.is_demo ? <DemoBadge /> : <span className="badge">{e.store_code}</span>}</td>
                 <td style={{ whiteSpace: 'nowrap' }}>
                   <OfferStatusBadge status={e.status} />

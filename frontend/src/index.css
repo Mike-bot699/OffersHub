@@ -61,6 +61,7 @@ small, .muted { color: var(--text-3); }
 .topbar { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 10px 24px; background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(6px); border-bottom: 1px solid var(--border); }
 .topbar .spacer { flex: 1; }
 .content { padding: 20px 24px 60px; max-width: 1400px; }
+.content.wide { max-width: none; }
 .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
 .page-head p { color: var(--text-2); margin: 4px 0 0; max-width: 760px; }
 .grid { display: grid; gap: 14px; }
@@ -194,6 +195,19 @@ ul.tight li { margin: 2px 0; }
 
 /* Offers Plan / catalog */
 .plan-table td { vertical-align: top; }
+/* Fills the window height; header stays on top and the Name column stays visible while scrolling sideways. */
+.plan-table { max-height: calc(100vh - 230px); overflow: auto; }
+.plan-table th { z-index: 2; }
+.plan-table tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--surface-2) 45%, var(--surface)); }
+.plan-table tbody tr:hover td { background: var(--surface-2); }
+.plan-table .name-cell { position: sticky; left: 0; z-index: 1; background: var(--surface); min-width: 200px; max-width: 260px; box-shadow: 1px 0 0 var(--border); }
+.plan-table th.name-cell { z-index: 3; }
+.tag-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.tag-chip { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; font-weight: 600; line-height: 1.5; padding: 0 7px; border-radius: 4px; white-space: nowrap;
+  color: hsl(var(--h) 65% 30%); background: hsl(var(--h) 85% 94%); border: 1px solid hsl(var(--h) 60% 80%); }
+.tag-chip button { border: 0; background: none; padding: 0 0 0 2px; color: inherit; cursor: pointer; font-size: 13px; line-height: 1; }
+.chip.tag-filter { color: hsl(var(--h) 65% 30%); border-color: hsl(var(--h) 60% 80%); }
+.chip.tag-filter.on { background: hsl(var(--h) 85% 92%); box-shadow: 0 0 0 1px hsl(var(--h) 60% 45%) inset; border-color: hsl(var(--h) 60% 45%); }
 .plan-table td.clip { max-width: 220px; min-width: 140px; }
 .plan-table td.clip > small { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .banner-thumb { padding: 2px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); cursor: zoom-in; display: block; }

@@ -60,6 +60,7 @@ class EventIn(BaseModel):
     activation: str | None = Field(default=None, pattern="^(manual_code|automatic)$")
     coupon_codes: list[str] = []
     linked_discounts: list[str] = []
+    tags: list[str] = []
     threshold_amount: float | None = None
     bonus: str | None = None
     eligible_products: list[Any] = []
@@ -95,6 +96,7 @@ class EventPatch(BaseModel):
     activation: str | None = None
     coupon_codes: list[str] | None = None
     linked_discounts: list[str] | None = None
+    tags: list[str] | None = None
     threshold_amount: float | None = None
     bonus: str | None = None
     est_incentive_cost: float | None = None
@@ -254,6 +256,7 @@ def create_event(body: EventIn, db: Session = DB):
     data = body.model_dump(exclude={"status", "status_note"})
     data["coupon_codes"] = [c.strip().upper() for c in data["coupon_codes"] if c.strip()]
     data["level_targets"] = data.get("level_targets") or []
+    data["tags"] = clean_tags(data["tags"])
     e = PromoEvent(**data, status=None, source=DataSource.MANUAL,
                    results_source=DataSource.MANUAL if body.offer_orders is not None else None)
     db.add(e)
@@ -271,6 +274,8 @@ def update_event(event_id: int, body: EventPatch, db: Session = DB):
     e = _event(db, event_id)
     store = db.get(Store, e.store_id)
     changes = body.model_dump(exclude_unset=True)
+    if "tags" in changes:
+        changes["tags"] = clean_tags(changes["tags"] or [])
     if "coupon_codes" in changes and changes["coupon_codes"] is not None:
         changes["coupon_codes"] = [c.strip().upper() for c in changes["coupon_codes"] if c.strip()]
     for k, v in changes.items():
@@ -459,6 +464,16 @@ def _event(db: Session, event_id: int) -> PromoEvent:
     if e is None:
         raise NotFoundError("Event not found.")
     return e
+
+
+def clean_tags(tags: list[str]) -> list[str]:
+    """Trim, cap at 40 chars, drop empties and case-insensitive duplicates (first spelling wins)."""
+    out: list[str] = []
+    for t in tags:
+        t = " ".join(str(t).split())[:40]
+        if t and t.lower() not in {x.lower() for x in out}:
+            out.append(t)
+    return out[:12]
 
 
 def _check_dates(start, end):

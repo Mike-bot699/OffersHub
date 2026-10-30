@@ -189,8 +189,8 @@ export function useSort<T>(rows: T[], initial: keyof T, desc = true) {
     const c = av < bv ? -1 : av > bv ? 1 : 0
     return d ? -c : c
   })
-  const th = (k: keyof T, text: string, numeric = true) => (
-    <th className={`sortable ${numeric ? 'num' : ''}`} onClick={() => (k === key ? setD(!d) : (setKey(k), setD(true)))}>
+  const th = (k: keyof T, text: string, numeric = true, extra = '') => (
+    <th className={`sortable ${numeric ? 'num' : ''} ${extra}`} onClick={() => (k === key ? setD(!d) : (setKey(k), setD(true)))}>
       {text}{k === key ? (d ? ' ↓' : ' ↑') : ''}
     </th>
   )
