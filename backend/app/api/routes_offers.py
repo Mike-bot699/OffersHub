@@ -10,6 +10,7 @@ from app.api.common import DB, Period, get_store, to_dict
 from app.core.errors import NotFoundError, ValidationError
 from app.models import Coupon, Offer, PromoEvent, Store
 from app.models.enums import OFFER_STATUSES, DataSource, OfferType, TechnicalStatus
+from app.offers.discount_report import offer_results
 from app.offers.monitoring import alerts, measure_event, offer_history_stats, verify_event
 from app.offers.performance import discount_analysis, offer_performance
 from app.offers.status import STATUS_LABELS, acknowledge_conflict, set_status, sync_store_offers
@@ -58,6 +59,7 @@ class EventIn(BaseModel):
     display: str | None = None
     activation: str | None = Field(default=None, pattern="^(manual_code|automatic)$")
     coupon_codes: list[str] = []
+    linked_discounts: list[str] = []
     threshold_amount: float | None = None
     bonus: str | None = None
     eligible_products: list[Any] = []
@@ -92,6 +94,7 @@ class EventPatch(BaseModel):
     display: str | None = None
     activation: str | None = None
     coupon_codes: list[str] | None = None
+    linked_discounts: list[str] | None = None
     threshold_amount: float | None = None
     bonus: str | None = None
     est_incentive_cost: float | None = None
@@ -204,7 +207,10 @@ def list_events(store_id: int | None = None, status: str | None = None, start: d
         q = q.where((PromoEvent.start_date.is_(None)) | (PromoEvent.start_date <= end))
     q = q.order_by(PromoEvent.start_date.asc().nulls_last() if when == "plan" else PromoEvent.start_date.desc().nulls_last())
     rows = [_event_out(db, e, code, cur, demo) for e, code, cur, demo in db.execute(q)]
-    return [r for r in rows if r["needs_review"]] if needs_review else rows
+    if needs_review:
+        rows = [r for r in rows if r["needs_review"]]
+    offer_results(db, rows)
+    return rows
 
 
 @router.get("/live-offers")
@@ -228,6 +234,7 @@ def live_offers(store_id: int | None = None, include_demo: bool = False, recent_
             continue  # old history without a status belongs in the offer database
         if not final or recent or row["conflict_open"]:
             out.append(row)
+    offer_results(db, out)
     return out
 
 
@@ -235,7 +242,9 @@ def live_offers(store_id: int | None = None, include_demo: bool = False, recent_
 def get_event(event_id: int, db: Session = DB):
     e = _event(db, event_id)
     s = db.get(Store, e.store_id)
-    return _event_out(db, e, s.code, s.currency, s.is_demo)
+    row = _event_out(db, e, s.code, s.currency, s.is_demo)
+    offer_results(db, [row])
+    return row
 
 
 @router.post("/events", status_code=201)

@@ -66,6 +66,8 @@ class PromoEvent(TimestampMixin, Base):
     display: Mapped[str | None] = mapped_column(String(32))  # full_site | email_only | hidden
     activation: Mapped[str | None] = mapped_column(String(16))  # manual_code | automatic
     coupon_codes: Mapped[list[Any]] = mapped_column(default=list)
+    # Automatic discounts (no code) linked by hand to this offer, by their name in the discount report.
+    linked_discounts: Mapped[list[Any]] = mapped_column(default=list)
     threshold_amount: Mapped[float | None] = mapped_column(Money)
     threshold_text: Mapped[str | None] = mapped_column(String(100))
     bonus: Mapped[str | None] = mapped_column(Text)

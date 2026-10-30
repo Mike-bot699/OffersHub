@@ -25,6 +25,12 @@ export type Ev = {
   landing_page: string | null; articles: string | null; banner_message: string | null
   has_banner: boolean; banner_kind: string | null; banner_filename: string | null
   duration_days: number | null; code_active_after_end: boolean
+  linked_discounts: string[]
+  discount_results: null | {
+    status: 'ok' | 'no_match' | 'after_report'; report_period?: [string, string]; report_end?: string; by_day?: boolean
+    matched?: string[]; missing?: string[]; orders?: number; discounts?: number; net_sales?: number; aov?: number | null
+    shared_with?: number; late?: { orders: number; discounts: number } | null
+  }
 }
 
 export const OFFER_STATUSES: { value: OfferStatus; label: string; icon: string; hint: string }[] = [
@@ -269,7 +275,7 @@ export function PlanTable({ rows, onOpen, showResults = false, empty }: { rows: 
             <thead><tr>
               {th('_start', 'Start Date', false)}{th('_end', 'End Date', false)}{th('_dur', 'Duration')}{th('_name', 'Name', false)}
               {th('_store', 'Store', false)}{th('_status', 'Status', false)}<th>Description</th><th>Level</th><th>Type</th><th>Offer</th>
-              <th>Discount Code</th><th className="num">Threshold</th><th>Technical Status</th><th>Bonus</th><th>Landing Page</th><th>Articles</th><th>Displayed</th>
+              <th>Discount Code</th><th>Code results</th><th className="num">Threshold</th><th>Technical Status</th><th>Bonus</th><th>Landing Page</th><th>Articles</th><th>Displayed</th>
               {showResults && <><th className="num">Offer orders</th><th className="num">Share of orders</th><th className="num">Offer sales</th></>}
             </tr></thead>
             <tbody>{sorted.map((e) => (
@@ -289,7 +295,9 @@ export function PlanTable({ rows, onOpen, showResults = false, empty }: { rows: 
                 <td style={{ minWidth: 120 }}><LevelCell e={e} /></td>
                 <td><small>{e.offer_type ? label(e.offer_type) : '—'}</small></td>
                 <td className="clip" title={e.offer_text ?? ''}><small>{e.offer_text ?? '—'}</small></td>
-                <td className="mono">{e.coupon_codes.join(', ') || <span className="muted">{e.activation === 'automatic' ? 'Automatic' : '—'}</span>}</td>
+                <td className="mono">{e.coupon_codes.join(', ') || <span className="muted">{e.activation === 'automatic' ? 'Automatic' : '—'}</span>}
+                  {e.linked_discounts?.length > 0 && <div><small className="muted" style={{ fontFamily: 'inherit' }}>+ {e.linked_discounts.join(', ')}</small></div>}</td>
+                <td style={{ whiteSpace: 'nowrap' }}><CodeResults e={e} /></td>
                 <td className="num">{e.threshold_amount != null ? money(e.threshold_amount, e.currency) : <small className="muted">{e.threshold_text && e.threshold_text !== 'none' ? e.threshold_text : '—'}</small>}</td>
                 <td style={{ whiteSpace: 'nowrap' }}><TechCell e={e} /></td>
                 <td className="clip" title={e.bonus ?? ''}><small>{e.bonus ?? '—'}</small></td>
@@ -310,5 +318,23 @@ export function PlanTable({ rows, onOpen, showResults = false, empty }: { rows: 
         </div>
       )}
     </>
+  )
+}
+
+/** What the offer's codes did according to the imported discount report. */
+export function CodeResults({ e }: { e: Ev }) {
+  const r = e.discount_results
+  if (!r) return <span className="muted">—</span>
+  if (r.status === 'after_report') return <small className="muted" title={`The discount report ends ${date(r.report_end ?? null)}`}>after report</small>
+  if (r.status === 'no_match') return <small className="muted" title="No discount with this name in the imported report">not in report</small>
+  const period = r.report_period ? `${date(r.report_period[0])} → ${date(r.report_period[1])}` : ''
+  return (
+    <div title={`Discount report ${period}${r.by_day ? ', offer dates only' : ', whole report period'}${r.missing?.length ? ` · not in report: ${r.missing.join(', ')}` : ''}`}>
+      <div><strong>{num(r.orders ?? 0)}</strong> <small className="muted">orders</small></div>
+      <small>{money(r.net_sales ?? 0, e.currency)} net · {money(r.discounts ?? 0, e.currency)} disc.</small>
+      {!!r.shared_with && <div><span className="badge warning" title="This code is also used by other offers: without daily data its totals cannot be split between them">shared ×{r.shared_with + 1}</span></div>}
+      {r.late && r.late.orders > 0 && <div><span className="badge warning">{num(r.late.orders)} late</span></div>}
+      {!r.by_day && !r.shared_with && <div><small className="muted">whole report period</small></div>}
+    </div>
   )
 }

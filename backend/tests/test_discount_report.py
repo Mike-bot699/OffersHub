@@ -78,3 +78,44 @@ def test_real_file_if_present(db, store):
     import_discount_report(db, store, p.read_bytes(), FILENAME, start=None, end=None, dry_run=False)
     s = summarize(db, latest_report(db, store))
     assert s["lines"][0]["name"] == "WLL10" and s["grouped"] == {"KNO-* (single-use codes)": 35}
+
+
+def test_offers_get_their_code_results(db, store):
+    from app.main import create_app
+
+    import_discount_report(db, store, _content(), FILENAME, start=None, end=None, dry_run=False)
+    db.commit()
+    c = TestClient(create_app())
+    mk = lambda **kw: c.post("/api/events", json={"store_id": store.id, **kw}).json()
+    spook = mk(name="Tricks, Treats", start_date="2026-10-25", end_date="2026-10-31", coupon_codes=["spooklab"])
+    a = mk(name="Anniversary A", start_date="2026-09-19", end_date="2026-09-22", coupon_codes=["WLL10"])
+    mk(name="Anniversary B", start_date="2026-09-30", end_date="2026-10-04", coupon_codes=["WLL10"])
+    bundle = mk(name="DJ bundle", start_date="2026-03-01", end_date="2026-03-31",
+                linked_discounts=["Kaching Bundles - MixMaster Junior DJ Console and 4 others"])
+    future = mk(name="Black Friday", start_date="2026-11-27", end_date="2026-11-29", coupon_codes=["WLL10"])
+    rows = {e["name"]: e for e in c.get(f"/api/events?store_id={store.id}").json()}
+    r = rows["Tricks, Treats"]["discount_results"]
+    assert r["orders"] == 11 and r["net_sales"] == 1700.41 and r["shared_with"] == 0 and r["matched"] == ["SPOOKLAB"]
+    shared = rows["Anniversary A"]["discount_results"]
+    assert shared["orders"] == 1212 and shared["shared_with"] == 1  # B also uses WLL10; Black Friday is after the report
+    assert rows["DJ bundle"]["discount_results"]["orders"] == 357
+    assert rows["Black Friday"]["discount_results"]["status"] == "after_report"
+    assert c.get(f"/api/events/{a['id']}").json()["discount_results"]["orders"] == 1212
+    assert spook and bundle and future
+
+
+def test_by_day_report_splits_offer_and_late_use(db, store):
+    rows = [{"day": "2026-10-26", "discount_name": "SPOOKLAB", "discount_method": "discount_code", "applied_discounts": -30, "discounted_orders": 2, "gross_sales": 200, "net_sales": 170},
+            {"day": "2026-11-03", "discount_name": "SPOOKLAB", "discount_method": "discount_code", "applied_discounts": -15, "discounted_orders": 1, "gross_sales": 100, "net_sales": 85},
+            {"day": "2026-10-01", "discount_name": "SPOOKLAB", "discount_method": "discount_code", "applied_discounts": -15, "discounted_orders": 1, "gross_sales": 100, "net_sales": 85}]
+    import_discount_report(db, store, _content(rows), "codes_-_2026-10-01_-_2026-11-05.jsonl", start=None, end=None, dry_run=False)
+    db.add(PromoEvent(store_id=store.id, name="Halloween", coupon_codes=["SPOOKLAB"], start_date=date(2026, 10, 25), end_date=date(2026, 10, 31)))
+    db.commit()
+    from app.offers.discount_report import offer_results
+
+    ev = db.query(PromoEvent).one()
+    row = {"id": ev.id, "store_id": store.id, "coupon_codes": ["SPOOKLAB"], "linked_discounts": [],
+           "start_date": "2026-10-25", "end_date": "2026-10-31"}
+    offer_results(db, [row])
+    res = row["discount_results"]
+    assert res["orders"] == 2 and res["late"] == {"orders": 1, "discounts": 15.0}

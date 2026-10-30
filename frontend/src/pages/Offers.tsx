@@ -6,7 +6,7 @@ import { useApp } from '../state'
 import { Card, Drawer, Empty, ErrorBox, Field, Loading, PageHead, Source, Status, Tabs } from '../ui'
 import { OFFER_STATUSES, OfferStatusBadge, PlanTable, StatusPanel, TechStatusBadge, type Ev } from '../offerStatus'
 import { BannerView, useBanner } from '../banner'
-import { DiscountCodes, DiscountImport } from './DiscountReport'
+import { DiscountCodes, DiscountImport, type DiscountSummary } from './DiscountReport'
 
 type Alert = { severity: string; kind: string; title: string; detail: string; store_code: string }
 
@@ -86,6 +86,9 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
   const base = isNew || ev === null ? null : fresh && fresh.id === ev.id ? fresh : ev
   const [f, setF] = useState<Record<string, string>>({})
   const v = (k: string, fallback: unknown) => (k in f ? f[k] : fallback == null ? '' : String(fallback))
+  const editStore = base?.store_id ?? Number(f.store_id ?? storeId ?? stores[0]?.id)
+  const report = useQuery({ queryKey: ['discount-report', editStore], enabled: !!editStore && ev !== null,
+    queryFn: () => api.get<DiscountSummary>(`/stores/${editStore}/discount-report`) })
   const results = useQuery({ queryKey: ['event-results', base?.id], enabled: !!base,
     queryFn: () => api.get<{ measured: Record<string, number | string | boolean> | null }>(`/events/${base!.id}/results`) })
   const save = useMutation({
@@ -95,6 +98,7 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
       for (const [k, val] of Object.entries(f)) {
         if (['threshold_amount', 'offer_orders', 'total_orders', 'offer_sales', 'est_incentive_cost'].includes(k)) body[k] = num(val)
         else if (k === 'coupon_codes' || k === 'channels' || k === 'level_targets') body[k] = val.split(',').map((x) => x.trim()).filter(Boolean)
+        else if (k === 'linked_discounts') body[k] = val.split(/,(?![^(]*\))/).map((x) => x.trim()).filter(Boolean)
         else if (k === 'target_orders') body.targets = { ...(base?.targets ?? {}), offer_orders: num(val) }
         else body[k] = val === '' ? null : val
       }
@@ -120,6 +124,8 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
       {base && <StatusPanel key={`${base.id}-${base.status}`} ev={base} onChanged={setFresh} />}
       {base && <div className="section-title">Offer details</div>}
       {base?.data_issues?.length ? <div className="notice warning" style={{ marginBottom: 10 }}><strong>Data issues found on import</strong><ul className="tight">{base.data_issues.map((d, i) => <li key={i}>{d}</li>)}</ul></div> : null}
+      <datalist id="report-codes">{report.data?.lines?.filter((l) => l.method !== 'automatic' && l.codes_in_group <= 1).map((l) => <option key={l.name} value={l.name}>{`${l.orders} orders`}</option>)}</datalist>
+      <datalist id="report-auto">{report.data?.lines?.filter((l) => l.method === 'automatic').map((l) => <option key={l.name} value={l.name}>{`${l.orders} orders`}</option>)}</datalist>
       <div className="form-grid">
         {isNew && <Field label="Store"><select value={f.store_id ?? storeId ?? stores[0]?.id ?? ''} onChange={set('store_id')}>{stores.filter((s) => !s.is_demo).map((s) => <option key={s.id} value={s.id}>{s.code}</option>)}</select></Field>}
         <Field label="Name"><input value={v('name', base?.name)} onChange={set('name')} /></Field>
@@ -127,7 +133,8 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
         {isNew && <Field label="Offer status"><select value={f.status ?? ''} onChange={set('status')}><option value="">Automatic (Scheduled if it starts later)</option>{OFFER_STATUSES.map((s) => <option key={s.value} value={s.value} title={s.hint}>{s.label}</option>)}</select></Field>}
         <Field label="Start"><input type="date" value={v('start_date', base?.start_date)} onChange={set('start_date')} /></Field>
         <Field label="End"><input type="date" value={v('end_date', base?.end_date)} onChange={set('end_date')} /></Field>
-        <Field label="Coupon codes (comma separated)"><input value={v('coupon_codes', base?.coupon_codes.join(', '))} onChange={set('coupon_codes')} /></Field>
+        <Field label="Coupon codes (comma separated)"><input list="report-codes" value={v('coupon_codes', base?.coupon_codes.join(', '))} onChange={set('coupon_codes')} /></Field>
+        <Field label="Linked automatic discounts (comma separated)"><input list="report-auto" value={v('linked_discounts', base?.linked_discounts?.join(', '))} onChange={set('linked_discounts')} placeholder="e.g. Kaching Bundles - RC Paper Airplane" /></Field>
         <Field label="Threshold amount"><input type="number" value={v('threshold_amount', base?.threshold_amount)} onChange={set('threshold_amount')} /></Field>
         <Field label="Activation"><select value={v('activation', base?.activation)} onChange={set('activation')}><option value="">—</option><option value="manual_code">Manual code</option><option value="automatic">Automatic</option></select></Field>
         <Field label="Channels (comma separated)"><input value={v('channels', base?.channels.join(', '))} onChange={set('channels')} /></Field>

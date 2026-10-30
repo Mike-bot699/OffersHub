@@ -245,3 +245,70 @@ def summarize(db: Session, report: DiscountReport, *, top: int | None = None) ->
         "note": "Orders are counted once per discount used: an order with a code and an automatic discount appears "
                 "in both lines, so the order total across discounts can exceed distinct discounted orders.",
     }
+
+
+def offer_results(db: Session, rows: list[dict]) -> None:
+    """Attach `discount_results` to serialised offers: what their codes (and linked automatic
+    discounts) did in the store's latest discount report.
+
+    With a report split by day, only the offer's own dates count and later use is reported as late
+    redemptions. Without days, the figures are the code's totals for the whole report period; a
+    code used by several offers cannot be split between them and is flagged as shared."""
+    by_store: dict[int, list[dict]] = defaultdict(list)
+    for r in rows:
+        by_store[r["store_id"]].append(r)
+    for store_id, items in by_store.items():
+        report = db.scalar(select(DiscountReport).where(DiscountReport.store_id == store_id)
+                           .order_by(DiscountReport.period_end.desc(), DiscountReport.created_at.desc()).limit(1))
+        if report is None:
+            for r in items:
+                r["discount_results"] = None
+            continue
+        lines = db.scalars(select(DiscountReportRow).where(DiscountReportRow.report_id == report.id)).all()
+        by_name: dict[str, list[DiscountReportRow]] = defaultdict(list)
+        for ln in lines:
+            by_name[ln.name.upper()].append(ln)
+        users: dict[str, set[int]] = defaultdict(set)
+        for e in db.scalars(select(PromoEvent).where(PromoEvent.store_id == store_id)):
+            if e.start_date and e.start_date > report.period_end:
+                continue  # starts after the report: cannot share its figures
+            for n in [*(e.coupon_codes or []), *(e.linked_discounts or [])]:
+                users[n.upper()].add(e.id)
+        for r in items:
+            names = [n for n in [*(r.get("coupon_codes") or []), *(r.get("linked_discounts") or [])] if n]
+            if not names:
+                r["discount_results"] = None
+                continue
+            start = date.fromisoformat(r["start_date"]) if r.get("start_date") else None
+            end = date.fromisoformat(r["end_date"]) if r.get("end_date") else None
+            if start and start > report.period_end:
+                r["discount_results"] = {"status": "after_report", "report_end": report.period_end.isoformat()}
+                continue
+            inside: list[DiscountReportRow] = []
+            late: list[DiscountReportRow] = []
+            matched, missing = [], []
+            for n in names:
+                got = by_name.get(n.upper(), [])
+                (matched if got else missing).append(n)
+                for ln in got:
+                    if report.by_day and ln.day and start and end:
+                        if start <= ln.day <= end:
+                            inside.append(ln)
+                        elif ln.day > end:
+                            late.append(ln)
+                    else:
+                        inside.append(ln)
+            shared = sorted({u for n in matched for u in users.get(n.upper(), set())} - {r["id"]})
+            o = sum(x.orders for x in inside)
+            n_sales = sum(x.net_sales or 0 for x in inside)
+            r["discount_results"] = {
+                "status": "ok" if matched else "no_match",
+                "report_period": [report.period_start.isoformat(), report.period_end.isoformat()],
+                "by_day": report.by_day, "matched": matched, "missing": missing,
+                "orders": o, "discounts": round(sum(x.discounts for x in inside), 2), "net_sales": round(n_sales, 2),
+                "aov": _r(n_sales / o) if o else None,
+                # Without days a shared code's totals belong to several offers: say so instead of splitting.
+                "shared_with": len(shared) if not report.by_day else 0,
+                "late": {"orders": sum(x.orders for x in late), "discounts": round(sum(x.discounts for x in late), 2)}
+                if report.by_day and end else None,
+            }
