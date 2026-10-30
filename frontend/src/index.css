@@ -228,3 +228,4 @@ ul.tight li { margin: 2px 0; }
 .banner-label { font-size: 11.5px; font-weight: 600; color: var(--text-3); margin-bottom: 4px; text-align: left; }
 .banner-popup { position: fixed; inset: 0; z-index: 1000; background: rgb(10 10 10 / 0.85); display: grid; place-items: center; padding: 24px; }
 .banner-popup-inner { max-width: 100%; }
+.clamp3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }

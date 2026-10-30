@@ -237,10 +237,13 @@ export function StatusPanel({ ev, onChanged }: { ev: Ev; onChanged: (e: Ev) => v
 
 const DISPLAY_TEXT: Record<string, string> = { full_site: 'Full-Displayed', email_only: 'Email-Only', hidden: 'Hidden' }
 
+const LEVELS: [string, string][] = [['store', 'Store (all)'], ['collection', 'Collection'], ['product', 'Product'], ['', 'Not set']]
+
 export function LevelCell({ e }: { e: Pick<Ev, 'level' | 'level_targets'> }) {
   if (!e.level) return <span className="muted">—</span>
   const what = e.level === 'store' ? 'Store' : e.level === 'collection' ? 'Collection' : 'Product'
-  return <span><span className="badge">{what}</span> <small>{e.level === 'store' || !e.level_targets.length ? 'All' : e.level_targets.join(', ')}</small></span>
+  const targets = e.level === 'store' || !e.level_targets.length ? 'All' : e.level_targets.join(', ')
+  return <span title={targets}><span className="badge">{what}</span> <small className="clamp3">{targets}</small></span>
 }
 
 export function TechCell({ e }: { e: Ev }) {
@@ -316,7 +319,9 @@ export function PlanTable({ rows, onOpen, showResults = false, empty }: { rows: 
   const [filter, setFilter] = useState<string[]>([])
   const [reviewOnly, setReviewOnly] = useState(false)
   const { tagChips, tagMatch } = useTagFilter(rows)
-  const shown = rows.filter((r) => (filter.length === 0 || filter.includes(r.status ?? 'not_set')) && (!reviewOnly || r.needs_review) && tagMatch(r))
+  const [levels, setLevels] = useState<string[]>([])
+  const shown = rows.filter((r) => (filter.length === 0 || filter.includes(r.status ?? 'not_set')) && (!reviewOnly || r.needs_review) && tagMatch(r)
+    && (levels.length === 0 || levels.includes(r.level ?? '')))
   const { sorted, th } = useSort<PlanRow>(shown.map((r) => ({ ...r, _status: statusRank(r.status), _start: r.start_date ?? '', _end: r.end_date ?? '',
     _dur: r.duration_days ?? -1, _store: r.store_code, _name: r.name })), '_start', !!showResults)
   const toReview = rows.filter((r) => r.needs_review).length
@@ -328,6 +333,19 @@ export function PlanTable({ rows, onOpen, showResults = false, empty }: { rows: 
           <input type="checkbox" checked={reviewOnly} onChange={(e) => setReviewOnly(e.target.checked)} />
           <span className="secondary">Needs review only ({toReview})</span>
         </label>
+      </div>
+      <div className="chips" style={{ marginBottom: 10 }}>
+        <small className="muted" style={{ alignSelf: 'center' }}>Level</small>
+        {LEVELS.map(([v, text]) => {
+          const n = rows.filter((r) => (r.level ?? '') === v).length
+          if (!n && v === '') return null
+          return (
+            <button key={v} type="button" className={`chip ${levels.includes(v) ? 'on' : ''}`} disabled={!n}
+              onClick={() => setLevels(levels.includes(v) ? levels.filter((x) => x !== v) : [...levels, v])}>
+              {text} <small className="muted">{n}</small>
+            </button>)
+        })}
+        {levels.length > 0 && <button type="button" className="ghost small" onClick={() => setLevels([])}>Clear</button>}
       </div>
       {tagChips}
       {!sorted.length ? empty : (
