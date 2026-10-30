@@ -267,7 +267,7 @@ export function PlanTable({ rows, onOpen, showResults = false, empty }: { rows: 
         <div className="table-wrap plan-table" style={{ maxHeight: 680 }}>
           <table>
             <thead><tr>
-              {th('_start', 'Start Date', false)}{th('_end', 'End Date', false)}{th('_dur', 'Duration (days)')}{th('_name', 'Name', false)}
+              {th('_start', 'Start Date', false)}{th('_end', 'End Date', false)}{th('_dur', 'Duration')}{th('_name', 'Name', false)}
               {th('_store', 'Store', false)}{th('_status', 'Status', false)}<th>Description</th><th>Level</th><th>Type</th><th>Offer</th>
               <th>Discount Code</th><th className="num">Threshold</th><th>Technical Status</th><th>Bonus</th><th>Landing Page</th><th>Articles</th><th>Displayed</th>
               {showResults && <><th className="num">Offer orders</th><th className="num">Share of orders</th><th className="num">Offer sales</th></>}
@@ -276,7 +276,7 @@ export function PlanTable({ rows, onOpen, showResults = false, empty }: { rows: 
               <tr key={e.id} className="clickable" onClick={() => onOpen(e)}>
                 <td style={{ whiteSpace: 'nowrap' }}>{date(e.start_date)}</td>
                 <td style={{ whiteSpace: 'nowrap' }}>{date(e.end_date)}</td>
-                <td className="num">{e.duration_days ?? '—'}</td>
+                <td className="num" style={{ whiteSpace: 'nowrap' }}>{e.duration_days != null ? `${e.duration_days}d` : '—'}</td>
                 <td style={{ minWidth: 160 }}><strong>{e.name}</strong>
                   {e.data_issues?.length > 0 && <span className="badge warning" title={e.data_issues.join('\n')} style={{ marginLeft: 6 }}>▲ {e.data_issues.length}</span>}</td>
                 <td>{e.is_demo ? <DemoBadge /> : <span className="badge">{e.store_code}</span>}</td>
