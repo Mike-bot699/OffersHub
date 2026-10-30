@@ -12,6 +12,8 @@ type StoreOverview = {
   live_offers: { id: number; name: string; offer_text: string | null; coupon_codes: string[]; start_date: string | null; end_date: string | null; technical_status: string }[]
   offers_in_period: number
   offers_in_period_by_status: Record<string, number>
+  offers_total: number
+  offers_by_status: Record<string, number>
   kpis: null | {
     orders: number; aov_with_discount: number | null; aov_without_discount: number | null; orders_with_offer_share: number | null
     orders_with_code_share: number | null; orders_with_live_offer_code: number | null; sales_share_with_offer: number | null
@@ -21,6 +23,10 @@ type StoreOverview = {
   orders_missing: string | null
   discount_report: DiscountSummary | null
 }
+
+const STATUS_ORDER = ['live', 'scheduled', 'in_progress', 'paused', 'completed', 'cancelled', 'not_set']
+const byStatus = (c: Record<string, number>) =>
+  STATUS_ORDER.filter((s) => c[s]).map((s) => `${c[s]} ${s === 'not_set' ? 'not set' : s.replace('_', ' ')}`).join(' · ') || 'none yet'
 
 export default function Overview() {
   const { storeId, days, includeDemo, store } = useApp()
@@ -43,7 +49,7 @@ function StoreView({ o }: { o: StoreOverview }) {
     <>
       <div className="kpis">
         <Kpi label="Live offers now" value={o.live_offers.length} sub="status Live" />
-        <Kpi label="Offers in the period" value={o.offers_in_period} sub={Object.entries(o.offers_in_period_by_status).map(([s, n]) => `${n} ${s.replace('_', ' ')}`).join(' · ') || '—'} />
+        <Kpi label="Total offers" value={o.offers_total} sub={byStatus(o.offers_by_status)} />
         <Kpi label="AOV with / without discount" value={k ? <span style={{ fontSize: 20 }}>{money(k.aov_with_discount, cur)} / {money(k.aov_without_discount, cur)}</span> : '—'}
           title="Average order value of orders that used a discount vs orders at full price" />
         <Kpi label="Orders with a code or offer" value={k ? pct(k.orders_with_offer_share) : '—'} sub={k ? `${pct(k.orders_with_code_share)} with a code` : undefined} />
@@ -88,7 +94,7 @@ function FromReport({ o, dr }: { o: StoreOverview; dr: DiscountSummary }) {
     <>
       <div className="kpis">
         <Kpi label="Live offers now" value={o.live_offers.length} sub="status Live" />
-        <Kpi label="Offers in the period" value={o.offers_in_period} sub={Object.entries(o.offers_in_period_by_status).map(([s, n]) => `${n} ${s.replace('_', ' ')}`).join(' · ') || '—'} />
+        <Kpi label="Total offers" value={o.offers_total} sub={byStatus(o.offers_by_status)} />
         <Kpi label="Orders with a discount" value={num(t.all.orders)} sub={`${num(t.codes.orders)} with a code · ${num(t.automatic.orders)} automatic`} />
         <Kpi label="AOV with a code / automatic" value={<span style={{ fontSize: 20 }}>{money(t.codes.aov, cur)} / {money(t.automatic.aov, cur)}</span>} />
         <Kpi label="Discounts given" value={money(t.all.discounts, cur)} sub={`${pct(t.all.discount_rate)} of discounted orders' gross sales`} />
@@ -128,13 +134,13 @@ function Portfolio({ rows }: { rows: StoreOverview[] }) {
     <Card title="By store" extra={<small className="muted">Each store in its own currency — amounts are never added across stores</small>}>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Store</th><th className="num">Live offers</th><th className="num">Offers in period</th><th className="num">AOV with discount</th><th className="num">AOV without</th>
+          <thead><tr><th>Store</th><th className="num">Live offers</th><th className="num">Total offers</th><th className="num">AOV with discount</th><th className="num">AOV without</th>
             <th className="num">Orders with code/offer</th><th className="num">Sales from offer orders</th><th className="num">Discount rate</th><th>Top code</th></tr></thead>
           <tbody>{rows.map((o) => (
             <tr key={o.store_id}>
               <td><div className="row" style={{ gap: 6 }}>{o.logo && <img src={o.logo} alt="" width={20} height={20} style={{ borderRadius: 4 }} />}<strong>{o.store_code}</strong>{o.is_demo && <DemoBadge />}</div><small className="muted">{o.store_name}</small></td>
               <td className="num">{o.live_offers.length}</td>
-              <td className="num">{o.offers_in_period}</td>
+              <td className="num" title={byStatus(o.offers_by_status)}>{o.offers_total}</td>
               {o.kpis ? <>
                 <td className="num">{money(o.kpis.aov_with_discount, o.currency)}</td>
                 <td className="num">{money(o.kpis.aov_without_discount, o.currency)}</td>

@@ -34,6 +34,8 @@ def store_overview(db: Session, store: Store, start: date, end: date) -> dict:
                          "technical_status": e.technical_status} for e in live],
         "offers_in_period": len(in_period),
         "offers_in_period_by_status": dict(Counter(e.status or "not_set" for e in in_period)),
+        "offers_total": len(events),
+        "offers_by_status": dict(Counter(e.status or "not_set" for e in events)),
     }
     from app.offers.discount_report import latest_report, summarize
 
