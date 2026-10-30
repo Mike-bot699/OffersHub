@@ -92,7 +92,7 @@ export function DiscountImport({ store }: { store: StoreRow }) {
     <Card title={`Import discount report — ${store.code}`}>
       <p className="secondary" style={{ marginTop: 0 }}>Shopify admin → Analytics → Reports → <strong>Sales by discount code</strong> → Export (.jsonl or .csv). The period is read from the file name; set it here if it is missing.</p>
       <div className="row" style={{ alignItems: 'flex-end' }}>
-        <input type="file" accept=".jsonl,.json,.ndjson,.csv" onChange={(e) => { setFile(e.target.files?.[0] ?? null); run.reset() }} />
+        <input type="file" onChange={(e) => { setFile(e.target.files?.[0] ?? null); run.reset() }} />
         <Field label="From (optional)"><input type="date" value={period.start} onChange={(e) => setPeriod({ ...period, start: e.target.value })} /></Field>
         <Field label="To (optional)"><input type="date" value={period.end} onChange={(e) => setPeriod({ ...period, end: e.target.value })} /></Field>
         <button onClick={() => run.mutate(true)} disabled={!file || run.isPending}>Preview</button>

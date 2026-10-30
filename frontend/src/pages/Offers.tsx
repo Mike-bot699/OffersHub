@@ -6,7 +6,7 @@ import { useApp } from '../state'
 import { Card, Drawer, Empty, ErrorBox, Field, Loading, PageHead, Source, Status, Tabs } from '../ui'
 import { OFFER_STATUSES, OfferStatusBadge, PlanTable, StatusPanel, TechStatusBadge, type Ev } from '../offerStatus'
 import { BannerView, useBanner } from '../banner'
-import { DiscountCodes } from './DiscountReport'
+import { DiscountCodes, DiscountImport } from './DiscountReport'
 
 type Alert = { severity: string; kind: string; title: string; detail: string; store_code: string }
 
@@ -57,7 +57,7 @@ export function OffersDB() {
       {tab === 'library' && <Library />}
       {tab === 'coupons' && <Coupons />}
       {tab === 'history' && <History />}
-      {tab === 'import' && <ImportWorkbook />}
+      {tab === 'import' && <div className="stack"><ImportWorkbook /><ImportDiscounts /></div>}
     </>
   )
 }
@@ -296,6 +296,12 @@ type ImportReport = {
   events_updated: number; offers_created: number; coupons_upserted: number; rows_skipped: number; stores_existing: string[]
   stores_created: string[]; store_settings_updated: string[]; issues: { sheet: string; row: number; store: string | null; event: string | null; issue: string }[]
   issue_counts: Record<string, number>
+}
+
+function ImportDiscounts() {
+  const { store } = useApp()
+  if (!store || store.is_demo) return <Card title="Import discount report (.jsonl / .csv)"><small>Select a store in the top bar to import its Shopify "Sales by discount code" export.</small></Card>
+  return <DiscountImport store={store} />
 }
 
 function ImportWorkbook() {
