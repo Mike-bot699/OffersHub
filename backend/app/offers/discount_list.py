@@ -114,6 +114,9 @@ def import_discount_list(db: Session, store: Store, content: bytes, filename: st
         for k, v in fields.items():
             setattr(c, k, v)
     if not dry_run:
+        # Whether the latest export covers every discount: only then is "missing" proof of absence.
+        store.constraints = {**(store.constraints or {}), "discount_export": {
+            "complete": not rep.possibly_partial, "imported_at": now.isoformat(), "rows": len(rows)}}
         db.flush()
         audit(db, "import.discount_list", "store", store.id, store_id=store.id,
               details={"filename": filename, "rows": len(rows), "possibly_partial": rep.possibly_partial})

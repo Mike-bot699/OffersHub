@@ -92,15 +92,21 @@ def technical_status(db: Session, ev: PromoEvent, store: Store, source: str | No
         return (TechnicalStatus.UNKNOWN, "Not verified: no coupon code or linked store discount to check "
                                          "(automatic offers need a linked discount).", None)
     checked = max((_aware(c.last_synced_at) for c in coupons if c.last_synced_at), default=None)
-    if not coupons and export:
-        # An export can be one page of 50: absence from it proves nothing.
+    complete = export and bool(((store.constraints or {}).get("discount_export") or {}).get("complete"))
+    if not coupons and export and not complete:
+        # A partial export (one page of 50): absence from it proves nothing.
         return TechnicalStatus.UNKNOWN, f"Not verified: {what} not in {label} (it may be on another page).", None
+    if not coupons and complete:
+        if ev.status not in (OfferStatus.LIVE, OfferStatus.PAUSED, OfferStatus.COMPLETED):
+            # Not gone live (planned, never launched or cancelled): a code not created yet is expected.
+            return TechnicalStatus.UNKNOWN, f"{what.capitalize()} not created in Shopify (the offer has not gone live).", None
+        return TechnicalStatus.UNAVAILABLE, f"{what.capitalize()} does not exist in Shopify (complete discounts export).", None
     if not coupons:
         return TechnicalStatus.UNAVAILABLE, f"{what.capitalize()} not found in {label}.", checked
     states = {c.code: (c.status or "unknown") for c in coupons}
     detail = "; ".join(f"{k}: {v}" for k, v in sorted(states.items()))
     if not ev.shopify_discount_id and missing:
-        detail += f"; {'not in export' if export else 'not found'}: {', '.join(missing)}"
+        detail += f"; {'not in export' if export and not complete else 'not found'}: {', '.join(missing)}"
     if any(v == "active" for v in states.values()):
         return TechnicalStatus.ACTIVE, f"Active in {label} ({detail}).", checked
     if all(v == "deleted" for v in states.values()):

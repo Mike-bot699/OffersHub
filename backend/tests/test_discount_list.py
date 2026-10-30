@@ -42,8 +42,10 @@ def test_fifty_rows_flagged_partial(db, store):
     assert import_discount_list(db, store, _csv(rows), "d.csv", dry_run=True).possibly_partial
 
 
-def test_technical_status_from_export(db, store):
-    import_discount_list(db, store, _csv(), "discounts_export.csv", dry_run=False)
+def test_technical_status_from_partial_export(db, store):
+    page = ROWS + [f"PAD{i:02d},-10.0,percentage,Amount Off,order,,,,,all,all,0,,,Expired,2025-01-01 00:00:00 +0000,"
+                   for i in range(50 - len(ROWS))]  # exactly one Shopify page: possibly partial
+    assert import_discount_list(db, store, _csv(page), "discounts_export.csv", dry_run=False).possibly_partial
     mk = lambda name, codes, status=None: PromoEvent(store_id=store.id, name=name, coupon_codes=codes, status=status)
     live, done, gone, completed_but_active = (mk("Halloween", ["SPOOKLAB", "OWLPASS"], "live"), mk("Prime", ["PRIME10"]),
                                               mk("Pumpkin", ["PUMPKIN"]), mk("Anniversary", ["LLT20"], "completed"))
@@ -67,3 +69,19 @@ def test_api_and_report_show_store_status(db, store):
     body = c.get(f"/api/stores/{store.id}/discount-report").json()  # no sales report yet: store list only
     assert body["report"] is None and {u["name"] for u in body["unused"]} >= {"SPOOKLAB", "LLT20"}
     assert next(u for u in body["unused"] if u["name"] == "SPOOKLAB")["store"]["status"] == "active"
+
+
+def test_complete_export_reports_missing_codes(db, store):
+    rows = ROWS + [f"FILL{i:02d},-10.0,percentage,Amount Off,order,,,,,all,all,0,,,Expired,2025-01-01 00:00:00 +0000,2025-02-01 00:00:00 +0000"
+                   for i in range(60)]  # more than one page: a complete export
+    assert not import_discount_list(db, store, _csv(rows), "all.csv", dry_run=False).possibly_partial
+    planned = PromoEvent(store_id=store.id, name="Black Friday for Big Ideas", coupon_codes=["BIGIDEAS"], status="scheduled")
+    never = PromoEvent(store_id=store.id, name="Chalk It Up", coupon_codes=["CHALKBOX"], status=None)
+    ran = PromoEvent(store_id=store.id, name="Ran without its code", coupon_codes=["GHOST10"], status="completed")
+    db.add_all([planned, never, ran])
+    db.flush()
+    for e in (planned, never, ran):
+        refresh(db, e, store)
+    # Offers that did not go live are ignored: no "not found" for a code not created yet.
+    assert planned.technical_status == "unknown" and never.technical_status == "unknown"
+    assert ran.technical_status == "unavailable" and "does not exist in Shopify" in ran.technical_evidence
