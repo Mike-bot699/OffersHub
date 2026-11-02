@@ -159,7 +159,7 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
         <Field label="Level"><select value={v('level', base?.level)} onChange={set('level')}><option value="">—</option><option value="store">Store (all)</option><option value="collection">Collection</option><option value="product">Product</option></select></Field>
         <Field label="Collections / products (comma separated, empty = All)"><input list="store-collections" value={v('level_targets', base?.level_targets?.join(', '))} onChange={set('level_targets')} /></Field>
         <datalist id="store-collections">{collections.data?.map((c) => <option key={c.id} value={c.title}>{`${c.products} products${c.kind === 'smart' ? ' · smart' : ''}`}</option>)}</datalist>
-        <Field label="Displayed"><select value={v('display', base?.display)} onChange={set('display')}><option value="">—</option><option value="top_event">Top Event</option><option value="full_site">Full-Displayed</option><option value="email_only">Email-Only</option><option value="hidden">Hidden</option></select></Field>
+        <Field label="Displayed"><select value={v('display', base?.display)} onChange={set('display')}><option value="">—</option><option value="full_site">Full-Displayed</option><option value="email_only">Email-Only</option><option value="hidden">Hidden</option></select></Field>
         <Field label="Landing page"><input value={v('landing_page', base?.landing_page)} onChange={set('landing_page')} placeholder="https://…" /></Field>
       </div>
       <div className="mt"><Field label="Description"><textarea value={v('description', base?.description)} onChange={set('description')} /></Field></div>

@@ -72,7 +72,7 @@ def parse_codes(raw: str) -> list[str]:
     return out
 
 DISPLAY_MAP = {"full displayed": "full_site", "fully displayed": "full_site", "email only": "email_only",
-               "content email": "email_only", "top event": "top_event"}
+               "content email": "email_only", "top event": "full_site"}  # Top Event = Full-Displayed (owner, 2026-11-02)
 
 
 def _header_map(headers: list[Any]) -> dict[int, str]:

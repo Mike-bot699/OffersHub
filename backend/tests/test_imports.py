@@ -241,7 +241,7 @@ def test_reimport_matches_changed_events_and_keeps_known_status(db):
 
 
 def test_displayed_top_event_and_unknown_values(db):
-    """Real calendar values: '👑 Top Event' is kept as its own value; an unknown one is reported, not dropped silently."""
+    """Real calendar values: '👑 Top Event' is Full-Displayed; an unknown one is reported, not dropped silently."""
     import io
 
     import openpyxl
@@ -261,6 +261,6 @@ def test_displayed_top_event_and_unknown_values(db):
     wb.save(buf)
     rep = import_offers_workbook(db, buf.getvalue(), "MAU.xlsx", dry_run=False, today=__import__("datetime").date(2026, 10, 30))
     evs = {e.name: e for e in db.scalars(select(PromoEvent))}
-    assert evs["Tricks, Treats & Clever Feats"].display == "top_event"
+    assert evs["Tricks, Treats & Clever Feats"].display == "full_site"  # same thing as Full-Displayed
     assert evs["Curious Club: First Dibs"].display is None
     assert any("Displayed 'Popup only' not recognised" in i["issue"] for i in rep.issues)
