@@ -264,3 +264,30 @@ def test_displayed_top_event_and_unknown_values(db):
     assert evs["Tricks, Treats & Clever Feats"].display == "full_site"  # same thing as Full-Displayed
     assert evs["Curious Club: First Dibs"].display is None
     assert any("Displayed 'Popup only' not recognised" in i["issue"] for i in rep.issues)
+
+
+def test_consistency_warnings_on_real_calendar_rows():
+    """MAU calendar rows as they were on 2 Nov 2026 (before the owner's corrections)."""
+    from datetime import date
+
+    from app.services.offers_import import consistency_issues, parse_codes
+
+    def check(start, end, offer, coupon, thr, desc, banner):
+        return consistency_issues(start=start, end=end, offer=offer, coupon_raw=coupon, coupons=parse_codes(coupon),
+                                  threshold=thr, description=desc, banner=banner)
+
+    grand = check(date(2026, 11, 13), date(2026, 11, 15), "15% off $99+ + free gift wrap & card over $120 (new)", "GRANDLOVE", 99,
+                  "The grandparent week keeps its audience",
+                  "desc: 15% off orders over $99 with code NANAPICKS — we wrap it | footer: Ends Thu 19 Nov, 11:59pm")
+    assert any("NANAPICKS" in i for i in grand) and any("Ends Thu 19 Nov" in i for i in grand)
+    bf = check(date(2026, 11, 23), date(2026, 11, 29), "20% off $99+ (new) · 25% off $99+ (existing specific segment)",
+               "BF2026 (new 20%) | FOXCLUB (existing 25%)", 99, "Three days at full depth", "code BIGIDEAS — three days")
+    assert any("BIGIDEAS" in i for i in bf) and any("'Three days' but the offer runs 7 days" in i for i in bf)
+    cyber = check(date(2026, 11, 30), date(2026, 12, 2), "20% off $99+ + free shipping (new) · 25% off $99+ + free shipping",
+                  "CYBER20 / CM20 / CM2026 (new 15% + FS) | ROBOTCLUB (existing 25% + FS)", 99, "Online-only, three days", "")
+    assert cyber == ["Coupon column says 15%, the Offer column does not"]
+    # corrected rows and gift thresholds raise nothing
+    assert check(date(2026, 12, 1), date(2026, 12, 24), "No discount. Daily content series.", "-", None,
+                 "Twenty-four days of one small idea a day", "") == []
+    assert check(date(2026, 9, 21), date(2026, 10, 4), "Extra 20% OFF storewide on orders $99+ + Free Gift Box on $149+",
+                 "LLT20", 99, "", "") == []

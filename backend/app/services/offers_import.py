@@ -442,6 +442,9 @@ def _import_events(db, rows, sheet, stores, report: ImportReport, batch, dry_run
         landing = str(g("landing_page") or "").strip()
         landing = landing if landing.lower().startswith(("http://", "https://", "www.")) else None
         cls = classify_offer(offer_text, bonus, coupon_raw)
+        issues += consistency_issues(start=start, end=end, offer=offer_text, coupon_raw=coupon_raw, coupons=coupons,
+                                     threshold=thr_amount, description=str(g("description") or ""),
+                                     banner=str(g("banner_message") or ""))
         key_src = f"{code}|{norm_key(name)}|{start or year}|{'/'.join(coupons)}"
         nkey = hashlib.sha1(key_src.encode()).hexdigest()[:24]
         report.events_parsed += 1
@@ -538,6 +541,49 @@ def _import_events(db, rows, sheet, stores, report: ImportReport, batch, dry_run
                 report.not_in_file.append({"store": next(c for c, s in stores.items() if s.id == store_id),
                                            "event": e.name, "id": e.id, "start": str(e.start_date), "status": e.status})
     db.flush()
+
+
+NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
+                "ten": 10, "eleven": 11, "twelve": 12, "fourteen": 14}
+WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+MONTHS = {m: i + 1 for i, m in enumerate(["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"])}
+
+
+def consistency_issues(*, start: date | None, end: date | None, offer: str | None, coupon_raw: str, coupons: list[str],
+                       threshold: float | None, description: str, banner: str) -> list[str]:
+    """Text that disagrees with the row's own codes, dates or threshold (warnings: the row is imported)."""
+    out: list[str] = []
+    texts = f"{offer or ''} {description} {banner}"
+    for c in dict.fromkeys(re.findall(r"\bcode ([A-Z][A-Z0-9]{3,})", texts)):
+        if c not in coupons:
+            out.append(f"text cites code {c}, not in the Coupon column")
+    if end:
+        for wd, dd, mon in re.findall(r"Ends (Mon|Tue|Wed|Thu|Fri|Sat|Sun)\w* (\d{1,2}) (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)", banner):
+            try:
+                said = date(end.year, MONTHS[mon], int(dd))
+            except ValueError:
+                continue
+            if said != end:
+                out.append(f"banner says 'Ends {wd} {dd} {mon}' but the end date is {end.isoformat()}")
+            elif WEEKDAYS[said.weekday()] != wd:
+                out.append(f"banner says {wd} {dd} {mon}, which is a {WEEKDAYS[said.weekday()]}")
+    if start and end:
+        days = (end - start).days + 1
+        for word in re.findall(r"(?<![\w-])(" + "|".join(NUMBER_WORDS) + r")[ -]days?\b", f"{description} {banner}", flags=re.IGNORECASE):
+            if NUMBER_WORDS[word.lower()] != days:
+                out.append(f"text says '{word} days' but the offer runs {days} days")
+                break
+    if offer:
+        offer_pct = set(re.findall(r"(\d+)\s*%", offer))
+        for pct in dict.fromkeys(re.findall(r"(\d+)\s*%", coupon_raw)):
+            if pct not in offer_pct:
+                out.append(f"Coupon column says {pct}%, the Offer column does not")
+        if threshold:
+            # The discount's own floor: the first amount after "off" (a gift's "$149+" further on is not it).
+            for amt in dict.fromkeys(re.findall(r"\boff\b[^$·|+]{0,30}?\$(\d+)", offer, flags=re.IGNORECASE)):
+                if float(amt) != threshold:
+                    out.append(f"Offer says ${amt}+ but the threshold is ${threshold:g}")
+    return out
 
 
 def _find_event(pool: list[PromoEvent], nkey: str, name: str, start: date | None, claimed: set[int],
