@@ -7,7 +7,7 @@ import { date, label, money, num, pct } from '../format'
 import { useApp } from '../state'
 import { Card, Drawer, Empty, ErrorBox, Field, Loading, PageHead, Source, Status, Tabs } from '../ui'
 import { OFFER_STATUSES, OfferStatusBadge, PlanTable, StatusPanel, usePlanFilters, SUGGESTED_TAGS, TagChip, tagCss, tagHue, useTagStyles, TechStatusBadge, suggestTags, type Ev } from '../offerStatus'
-import { BannerView, useBanner } from '../banner'
+import { BannerDrawer, BannerView, useBanner } from '../banner'
 import { DiscountCodes, DiscountImport, DiscountListImport, type DiscountSummary } from './DiscountReport'
 
 type Alert = { severity: string; kind: string; title: string; detail: string; store_code: string }
@@ -206,6 +206,7 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
 function BannerEditor({ ev }: { ev: Ev }) {
   const qc = useQueryClient()
   const banner = useBanner(ev.id, ev.has_banner)
+  const [preview, setPreview] = useState(false)
   const upload = useMutation({
     mutationFn: async (file: File) => {
       const isHtml = /\.html?$/i.test(file.name) || file.type === 'text/html'
@@ -219,7 +220,14 @@ function BannerEditor({ ev }: { ev: Ev }) {
   return (
     <>
       <div className="section-title">Banner design</div>
-      {banner.data?.content && <div style={{ marginBottom: 8 }}><BannerView banner={banner.data} width={360} /><small className="muted">{banner.data.filename}</small></div>}
+      {banner.data?.content && (
+        <div style={{ marginBottom: 8 }}>
+          {/* Same preview as the thumbnail in the table: every format, click one to enlarge. */}
+          <button type="button" className="banner-thumb" title="Open banner preview" onClick={() => setPreview(true)}><BannerView banner={banner.data} width={360} /></button>
+          <small className="muted">{banner.data.filename} · click to open the preview</small>
+        </div>
+      )}
+      {preview && <BannerDrawer eventId={ev.id} name={ev.name} onClose={() => setPreview(false)} />}
       <div className="row">
         <input type="file" accept=".html,.htm,image/png,image/jpeg,image/webp" onChange={(e) => e.target.files?.[0] && upload.mutate(e.target.files[0])} />
         {ev.has_banner && <button onClick={() => remove.mutate()}>Remove</button>}
