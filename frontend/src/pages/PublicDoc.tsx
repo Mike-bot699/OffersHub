@@ -169,11 +169,11 @@ export function DocBody({ d, token }: { d: DocData; token: string }) {
           <table className="pd-table"><thead><tr>{multi && <th>Store</th>}<th>Product</th><th>SKU</th><th>Performance</th><th>Extra tags</th></tr></thead>
             <tbody>{d.focus.map((p) => (
               <tr key={p.id}>
-                {multi && <td>{p.store_code}</td>}
-                <td>{p.url ? <a href={p.url} target="_blank" rel="noopener noreferrer">{p.name}</a> : p.name}</td>
-                <td className="pd-mono">{p.sku}</td>
-                <td>{p.perf && <span className="pd-tag sm" style={{ background: PERF_COLOR[p.perf]?.[0], color: PERF_COLOR[p.perf]?.[1] }}>{p.perf === 'Best Seller' ? '🔥 ' : ''}{p.perf}</span>}</td>
-                <td>{p.tags.map((t) => <span key={t} className="pd-tag sm" style={{ background: '#000', color: '#fff', marginRight: 4 }}>{t}</span>)}</td>
+                {multi && <td data-label="Store">{p.store_code}</td>}
+                <td data-label="Product" className="pd-main">{p.url ? <a href={p.url} target="_blank" rel="noopener noreferrer">{p.name}</a> : p.name}</td>
+                <td data-label="SKU" className="pd-mono">{p.sku}</td>
+                <td data-label="Performance">{p.perf && <span className="pd-tag sm" style={{ background: PERF_COLOR[p.perf]?.[0], color: PERF_COLOR[p.perf]?.[1] }}>{p.perf === 'Best Seller' ? '🔥 ' : ''}{p.perf}</span>}</td>
+                <td data-label="Extra tags">{p.tags.map((t) => <span key={t} className="pd-tag sm" style={{ background: '#000', color: '#fff', marginRight: 4 }}>{t}</span>)}</td>
               </tr>))}
             </tbody></table>
         </>}
@@ -181,17 +181,17 @@ export function DocBody({ d, token }: { d: DocData; token: string }) {
           <SectionHead id="products" />
           <table className="pd-table"><thead><tr>{multi && <th>Store</th>}<th>Name</th><th>SKU</th><th>Dedicated offer</th></tr></thead>
             <tbody>{d.product_offers.map((p, i) => (
-              <tr key={i}>{multi && <td>{p.store_code}</td>}
-                <td>{p.url ? <a href={p.url} target="_blank" rel="noopener noreferrer">{p.name}</a> : p.name}</td>
-                <td className="pd-mono">{p.sku ?? '-'}</td><td>{p.offer ?? '-'}</td></tr>))}
+              <tr key={i}>{multi && <td data-label="Store">{p.store_code}</td>}
+                <td data-label="Name" className="pd-main">{p.url ? <a href={p.url} target="_blank" rel="noopener noreferrer">{p.name}</a> : p.name}</td>
+                <td data-label="SKU" className="pd-mono">{p.sku ?? '-'}</td><td data-label="Dedicated offer">{p.offer ?? '-'}</td></tr>))}
             </tbody></table>
         </>}
         {d.extra_activities.length > 0 && <>
           <SectionHead id="extras" />
           <table className="pd-table"><thead><tr>{multi && <th>Store</th>}<th>Activity</th><th>What the customer gets</th><th>Price / value</th></tr></thead>
             <tbody>{d.extra_activities.map((a, i) => (
-              <tr key={i}>{multi && <td>{a.store_code}</td>}<td><b>{a.name}</b></td>
-                <td>{a.description}{a.code && <> · code <b>{a.code}</b></>}</td><td>{a.price ?? '-'}</td></tr>))}
+              <tr key={i}>{multi && <td data-label="Store">{a.store_code}</td>}<td data-label="Activity" className="pd-main"><b>{a.name}</b></td>
+                <td data-label="What the customer gets">{a.description}{a.code && <> · code <b>{a.code}</b></>}</td><td data-label="Price / value">{a.price ?? '-'}</td></tr>))}
             </tbody></table>
         </>}
         <Custom html={d.custom_bottom} />

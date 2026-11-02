@@ -340,7 +340,28 @@ ul.tight li { margin: 2px 0; }
 .pd-table a:hover { color: #2563eb; text-decoration: underline; }
 .pd-mono { font-variant-numeric: tabular-nums; color: #6b7280; font-size: 13px; white-space: nowrap; }
 @media (max-width: 1100px) { .pd-toc { display: none; } }
-@media (max-width: 700px) { .pd-page { padding: 28px 18px; } .pd-fields { grid-template-columns: 1fr; } }
+@media (max-width: 700px) {
+  .pd-wrap { padding: 8px 0 24px; }
+  .pd-bar { padding: 0 12px; }
+  .pd-page { padding: 24px 16px; box-shadow: none; }
+  .pd-page h1 { font-size: 24px; } .pd-sec h2 { font-size: 22px; } .pd-page h3 { font-size: 19px; }
+  .pd-fields { grid-template-columns: 1fr; }
+  .pd-f { display: block; } .pd-f > b { margin-right: 6px; } .pd-f > span { overflow-wrap: anywhere; }
+  .pd-box { flex-wrap: wrap; row-gap: 4px; }
+  .pd-table td:empty { display: none; }
+  .pd-banners { flex-wrap: nowrap; gap: 14px; }
+  .pd-tag { margin-bottom: 4px; }
+  .pd-k2 { width: auto; display: block; font-size: 12px; }
+  .pd-tip { width: 220px; left: -100px; top: 18px; }
+  /* tables become one card per row, each value with its column name */
+  .pd-table thead { display: none; }
+  .pd-table, .pd-table tbody, .pd-table tr, .pd-table td { display: block; width: 100%; box-sizing: border-box; }
+  .pd-table tr { border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; }
+  .pd-table td { border: 0; padding: 3px 0; display: flex; gap: 10px; }
+  .pd-table td::before { content: attr(data-label); flex: 0 0 96px; color: #6b7280; font-size: 12px; padding-top: 2px; }
+  .pd-table td.pd-main { font-weight: 600; } .pd-table td.pd-main::before { content: none; }
+  .pd-table td.pd-mono { white-space: normal; }
+}
 @media print {
   .pd-wrap { background: #fff; padding: 0; } .pd-bar, .pd-i, .pd-toc { display: none; }
   .pd-page { box-shadow: none; padding: 0; max-width: none; }
