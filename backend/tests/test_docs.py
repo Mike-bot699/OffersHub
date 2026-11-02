@@ -264,6 +264,13 @@ def test_forecast_from_the_same_event_last_year(db, c):
     assert ev["Cyber Monday, Curious Clicks"]["forecast"]["orders"] == 1370  # no days: last year's total as is
     assert ev["24 Little Wonders"]["forecast"] is None  # no last-year codes: no estimate
     assert ev["Deck the Shelves"]["forecast"]["missing"] == "no sales data yet for last year's JINGLE15"  # said, not hidden
+    # the store's discount list knows the code's total uses (real: BF2025 used 1,540 times, Shopify export)
+    from app.models import Coupon
+    db.add(Coupon(store_id=s.id, code="JINGLE15", source="shopify_export", status="expired", usage_count=1625))
+    db.commit()
+    ev = {e["name"]: e for e in c.get(f"/api/public/docs/{doc['token']}").json()["events"]}
+    assert ev["Deck the Shelves"]["forecast"] == {"orders": 1625, "uses": None, "aov": None, "estimate": True,
+                                                  "basis": "last year JINGLE15: used 1,625 times in total"}
     c.patch(f"/api/events/{bf.id}", json={"forecast_orders": 1400})
     ev = {e["name"]: e for e in c.get(f"/api/public/docs/{doc['token']}").json()["events"]}
     assert ev["Black Friday for Big Ideas"]["forecast"]["estimate"] is False  # typed forecast wins

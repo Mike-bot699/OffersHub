@@ -68,9 +68,32 @@ def estimate(db: Session, e: PromoEvent, cache: dict | None = None) -> dict | No
         if cache is not None:
             cache[key] = ly
     if not ly:
-        return None
+        return _from_usage(db, e)
     days = (e.end_date - e.start_date).days + 1
     orders = round(ly["orders"] / ly["days"] * days) if ly["by_day"] and ly["days"] else ly["orders"]
     basis = f"last year {', '.join(ly['codes'])}: {ly['orders']:,} orders" + (f" in {ly['days']} days" if ly["days"] else "")
     return {"orders": max(orders, 1), "aov": ly["aov"], "basis": basis}
 
+
+
+def _from_usage(db: Session, e: PromoEvent) -> dict | None:
+    """Fallback without last year's sales: the codes' total uses in the store's discount list
+    (Shopify export or Eli Z). One use is one order; no AOV; uses after the event are included."""
+    from app.models import Coupon
+
+    wanted = {c.upper() for c in e.compare_codes}
+    best: dict[str, Coupon] = {}
+    for c in db.scalars(select(Coupon).where(Coupon.store_id == e.store_id, Coupon.code.in_(wanted))):
+        if c.usage_count and (c.code not in best or c.usage_count > best[c.code].usage_count):
+            best[c.code] = c
+    if not best:
+        return None
+    uses = sum(c.usage_count for c in best.values())
+    fmt = lambda d: f"{d.day} {d.strftime('%b')}"
+    # When the code ran longer than the event, its total includes uses after it: say so.
+    windows = [f"{c.code} active {fmt(c.starts_at)} to {fmt(c.ends_at)}" for c in best.values()
+               if c.starts_at and c.ends_at and (c.ends_at - c.starts_at).days + 1 > (e.end_date - e.start_date).days + 1 + 21]
+    basis = f"last year {', '.join(sorted(best))}: used {uses:,} times in total"
+    if windows:
+        basis += f" ({'; '.join(windows)}, uses after the event included)"
+    return {"orders": uses, "aov": None, "basis": basis}
