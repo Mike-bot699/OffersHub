@@ -7,7 +7,7 @@ import { BannerPair } from '../banner'
 
 type Tag = { name: string; bg?: string; fg?: string }
 type DocEvent = {
-  id: number; store_code: string; store_name: string; name: string; tags: Tag[]; when: string
+  id: number; store_code: string; store_name: string; name: string; tags: Tag[]; when: string; start_date: string
   display: string | null; display_text: string | null; banner: boolean; emails: { subject: string; preview: string }[]
   offer: string | null; codes: string[]; threshold: string | null; activation: string | null
   bonus: { free_shipping: string | null; giveaway_product: string | null; free_gift: string | null } | null
@@ -124,6 +124,8 @@ function SectionHead({ id }: { id: keyof typeof SECTION_INFO }) {
   return <div className="pd-sec" id={`sec-${id}`}><h2>{title}</h2><p>{desc}</p></div>
 }
 
+const tocDate = (s: string) => new Date(`${s}T00:00:00Z`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', timeZone: 'UTC' })
+
 function Toc({ d }: { d: DocData }) {
   const go = (id: string) => (ev: React.MouseEvent) => { ev.preventDefault(); document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }
   const items: [string, string, boolean][] = [['events', 'Events', d.events.length > 0], ['focus', 'Products to focus', d.focus.length > 0],
@@ -134,7 +136,7 @@ function Toc({ d }: { d: DocData }) {
       {items.filter(([, , on]) => on).map(([id, label]) => (
         <div key={id}>
           <a href={`#sec-${id}`} onClick={go(`sec-${id}`)}>{label}</a>
-          {id === 'events' && <div className="pd-toc-sub">{d.events.map((e) => <a key={e.id} href={`#ev-${e.id}`} onClick={go(`ev-${e.id}`)}>{e.name}</a>)}</div>}
+          {id === 'events' && <div className="pd-toc-sub">{d.events.map((e) => <a key={e.id} href={`#ev-${e.id}`} onClick={go(`ev-${e.id}`)}><span className="pd-toc-d">{tocDate(e.start_date)}</span><span>{e.name}</span></a>)}</div>}
         </div>
       ))}
     </nav>
