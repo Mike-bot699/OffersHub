@@ -185,10 +185,14 @@ def test_offer_sentence_from_the_calendar_coupon_cell():
         "New customers get 15% off orders over $99 with code SPOOKLAB, shown on the site. "
         "Email subscribers only get 20% off orders over $99 with code OWLPASS.")
     assert describe("LASTPOST (15% + FS, $49+) | TREETIME (existing 20% + FS)", 49, "full_site").startswith(
-        "Customers get 15% off orders over $49 plus free shipping with code LASTPOST.")
+        "Customers get 15% off orders over $49 plus free shipping with code LASTPOST, shown on the site.")
     assert "get $25 off orders over $99 with code JANSPARK" in describe(
         "NEWSPARK (new 15%) | JANSPARK (existing $25 off $99 · B-cell: credit)", 99, "full_site")
     assert describe("SPOOKLAB (reused, already live)", 99, "email_only") is None  # value unknown: not guessed
+    # one code, one value in the Offer text (The Week Before the Week)
+    assert describe("EBF20", 99, "full_site", None, "20% off $99+") == \
+        "Customers get 20% off orders over $99 with code EBF20, shown on the site."
+    assert describe("EBF20", 99, "full_site", None, "20% off (new) · 25% off (existing)") is None  # two values: not paired
     assert describe("SPOOKLAB (reused, already live)", 99, "email_only",
                     {"SPOOKLAB": {"value": 15.0, "value_type": "percent"}}) == "Customers get 15% off orders over $99 with code SPOOKLAB."
 

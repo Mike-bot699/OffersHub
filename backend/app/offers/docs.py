@@ -174,7 +174,7 @@ def assemble(db: Session, doc: OfferDoc, today: date) -> dict[str, Any]:
             "banner": bool(e.banner_content) and e.display == "full_site",
             "emails": _emails(e) if e.display == "email_only" else [],
             "offer": _clean(e.offer_description)
-            or describe_offer(e.coupon_raw, e.threshold_amount, e.display, coupons.get(e.store_id))
+            or describe_offer(e.coupon_raw, e.threshold_amount, e.display, coupons.get(e.store_id), e.offer_text)
             or _clean(e.offer_text), "codes": e.coupon_codes or [],
             "threshold": f"{_money(e.threshold_amount)}+" if e.threshold_amount else None,
             "threshold_amount": e.threshold_amount,

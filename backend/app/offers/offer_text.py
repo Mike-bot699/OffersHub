@@ -24,9 +24,15 @@ def _amount(v: float) -> str:
 
 
 def describe(coupon_raw: str | None, threshold: float | None, display: str | None,
-             store_codes: dict[str, dict] | None = None) -> str | None:
+             store_codes: dict[str, dict] | None = None, offer_text: str | None = None) -> str | None:
     if not coupon_raw:
         return None
+    # A single code and a single value in the Offer text ("20% off $99+") belong together.
+    single = None
+    if len(parse_codes(coupon_raw)) == 1 and offer_text:
+        vals = re.findall(r"(\d+(?:\.\d+)?)\s*%|\$\s*(\d+(?:\.\d+)?)\s*off", offer_text, re.I)
+        if len(vals) == 1:
+            single = f"{float(vals[0][0]):g}% off" if vals[0][0] else f"${float(vals[0][1]):g} off"
     sentences = []
     for token in coupon_raw.split("|"):
         codes = parse_codes(token)
@@ -44,6 +50,8 @@ def describe(coupon_raw: str | None, threshold: float | None, display: str | Non
             c = (store_codes or {}).get(code)
             if c and c.get("value") and c.get("value_type") in ("percent", "fixed"):
                 value = f"{c['value']:g}% off" if c["value_type"] == "percent" else f"${c['value']:g} off"
+            elif single:
+                value = single
             else:
                 continue  # value unknown: not described
         floor = re.search(r"\$\s*(\d+(?:\.\d+)?)\s*\+", notes)
@@ -53,6 +61,6 @@ def describe(coupon_raw: str | None, threshold: float | None, display: str | Non
         what = f"{value} orders over {_amount(floor_v)}" if floor_v else value
         if free_ship:
             what += " plus free shipping"
-        where = ", shown on the site" if segment == "New customers" and display == "full_site" else ""
+        where = ", shown on the site" if segment in (None, "New customers") and display == "full_site" else ""
         sentences.append(f"{segment or 'Customers'} get {what} with code {code}{where}.")
     return " ".join(sentences) or None
