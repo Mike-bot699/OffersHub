@@ -62,11 +62,13 @@ CODE_RE = re.compile(r"^[A-Z0-9][A-Z0-9_-]{2,}$")
 
 def parse_codes(raw: str) -> list[str]:
     """Codes from a cell such as "SPOOKLAB (new) | OWLPASS (existing 15/20%)" or "N/A (automatic)".
-    Notes in parentheses are dropped; only code-shaped tokens are kept."""
+    Notes in parentheses are dropped; only code-shaped tokens are kept. A code followed only by an
+    amount ("XMAS20 20%", "JANSPARK $25") keeps the code; other words make the token prose, not a code."""
     text = re.sub(r"\([^)]*\)", " ", raw or "")
     out = []
     for tok in re.split(r"[|,/\n+;]", text):
-        tok = tok.strip().upper()
+        words = tok.strip().upper().split()
+        tok = words[0] if words and all(re.fullmatch(r"[$£€]?\d[\d.,]*%?", w) for w in words[1:]) else " ".join(words)
         if CODE_RE.match(tok) and tok not in ("N/A", "NONE", "AUTOMATIC", "AUTO") and tok not in out:
             out.append(tok)
     return out

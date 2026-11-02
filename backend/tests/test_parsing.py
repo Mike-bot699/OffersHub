@@ -72,3 +72,13 @@ def test_store_codes():
 def test_strip_decoration():
     assert strip_decoration("🍂 Autumn Breeze: Fall Sale") == "Autumn Breeze: Fall Sale"
     assert detect_currency("€99,00") == "EUR"
+
+
+def test_codes_followed_by_an_amount():
+    """Real MAU calendar cells (Nov 2026)."""
+    from app.services.offers_import import parse_codes
+
+    assert parse_codes("XMAS20 20% | CALMNIGHTS (existing 25% specific segment)") == ["XMAS20", "CALMNIGHTS"]
+    assert parse_codes("CYBER20 / CM20 / CM2026 (new 15% + FS) | ROBOTCLUB (existing 25% + FS)") == ["CYBER20", "CM20", "CM2026", "ROBOTCLUB"]
+    assert parse_codes("SPOOKLAB (15 %new) | OWLPASS (existing 20%)") == ["SPOOKLAB", "OWLPASS"]
+    assert parse_codes("Free shipping | -") == []  # prose is not a code
