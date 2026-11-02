@@ -113,8 +113,8 @@ button.ghost { border-color: transparent; background: transparent; }
 button.small { padding: 3px 8px; font-size: 12px; }
 input, select, textarea { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border-strong); border-radius: 6px; padding: 6px 8px; min-width: 0; }
 textarea { width: 100%; min-height: 70px; }
-label.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-2); }
-label.field input, label.field select, label.field textarea { font-size: 14px; }
+label.field, div.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-2); }
+label.field input, label.field select, label.field textarea, div.field input { font-size: 14px; }
 .form-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
 .seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: 6px; overflow: hidden; }
 .seg button { border: none; border-radius: 0; border-right: 1px solid var(--border-strong); }
@@ -278,3 +278,7 @@ ul.tight li { margin: 2px 0; }
 .cal-legend .live-sw { background: #fff; outline: 2px solid #1a8a1a; }
 .cal-legend .today-sw { width: 2px; border-left: 2px dashed #e8a317; border-radius: 0; }
 .cal-undated { margin-top: 14px; border-top: 1px dashed var(--border-strong); padding-top: 10px; }
+.tag-chip.clickable { cursor: pointer; }
+.tag-style-editor { border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 8px; background: var(--surface); box-shadow: 0 4px 14px rgba(0,0,0,.08); }
+.tag-swatch { width: 30px; height: 24px; padding: 0; border-radius: 5px; border: 1px solid var(--border); font-size: 11px; font-weight: 700; cursor: pointer; }
+.drawer-desc { margin: 4px 0 0; color: var(--text-2); font-size: 13px; line-height: 1.45; white-space: pre-line; }

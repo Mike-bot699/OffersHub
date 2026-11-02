@@ -6,7 +6,7 @@ import { api, qs } from '../api'
 import { date, label, money, num, pct } from '../format'
 import { useApp } from '../state'
 import { Card, Drawer, Empty, ErrorBox, Field, Loading, PageHead, Source, Status, Tabs } from '../ui'
-import { OFFER_STATUSES, OfferStatusBadge, PlanTable, StatusPanel, usePlanFilters, SUGGESTED_TAGS, TagChip, TechStatusBadge, suggestTags, type Ev } from '../offerStatus'
+import { OFFER_STATUSES, OfferStatusBadge, PlanTable, StatusPanel, usePlanFilters, SUGGESTED_TAGS, TagChip, tagCss, tagHue, useTagStyles, TechStatusBadge, suggestTags, type Ev } from '../offerStatus'
 import { BannerView, useBanner } from '../banner'
 import { DiscountCodes, DiscountImport, DiscountListImport, type DiscountSummary } from './DiscountReport'
 
@@ -129,7 +129,8 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
   if (ev === null) return null
   const m = results.data?.measured
   return (
-    <Drawer open onClose={() => { setF({}); setTags(null); setFresh(null); onClose() }} title={<h2>{isNew ? 'New offer' : base!.name}</h2>}>
+    <Drawer open onClose={() => { setF({}); setTags(null); setFresh(null); onClose() }} title={<><h2>{isNew ? 'New offer' : base!.name}</h2>
+      {!isNew && (f.description ?? base!.description) && <p className="drawer-desc">{f.description ?? base!.description}</p>}</>}>
       {base && (
         <div className="row" style={{ marginBottom: 10 }}>
           <span className="badge">{base.store_code}</span><OfferStatusBadge status={base.status} /><TechStatusBadge ev={base} />
@@ -404,24 +405,74 @@ function TagsField({ value, text: source, onChange }: { value: string[]; text: s
     setText('')
   }
   const hints = suggestTags(source, value)
+  const [styling, setStyling] = useState<string | null>(null)
   return (
     <div style={{ marginBottom: 12 }}>
-      <Field label="Tags">
+      {styling && <TagStyleEditor key={styling} tag={styling} onClose={() => setStyling(null)} />}
+      {/* Not a <label>: a click on a chip inside a label would also press the first chip's remove button. */}
+      <div className="field">Tags
         <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-          {value.map((t) => <TagChip key={t} tag={t} onRemove={() => onChange(value.filter((x) => x !== t))} />)}
+          {value.map((t) => <TagChip key={t} tag={t} onClick={() => setStyling(styling === t ? null : t)} onRemove={() => onChange(value.filter((x) => x !== t))} />)}
           <input list="event-tags" value={text} placeholder="Add a tag, e.g. Halloween" style={{ flex: '1 1 180px' }}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); add(text) } }}
             onBlur={() => text.trim() && add(text)} />
           <datalist id="event-tags">{options.map((t) => <option key={t} value={t} />)}</datalist>
         </div>
-      </Field>
+      </div>
+      {value.length > 0 && !styling && <small className="muted">Click a tag to change its colours.</small>}
       {hints.length > 0 && (
         <div className="row" style={{ gap: 6, marginTop: 6 }}>
           <small className="muted">Suggested from this offer:</small>
           {hints.map((t) => <button key={t} type="button" className="chip" onClick={() => add(t)}>+ {t}</button>)}
         </div>
       )}
+    </div>
+  )
+}
+
+const TAG_PRESETS: [string, string][] = [['#000000', '#ffffff'], ['#e8590c', '#ffffff'], ['#c92a2a', '#ffffff'], ['#2b8a3e', '#ffffff'],
+  ['#1c3d8f', '#ffffff'], ['#7048e8', '#ffffff'], ['#f2c94c', '#000000'], ['#f1f3f5', '#212529']]
+
+function hueHex(tag: string) {
+  // The automatic colour as hex, so the pickers start from what the tag looks like now.
+  const h = tagHue(tag) / 360, l = 0.94, s = 0.85
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q
+  const f = (t: number) => { t = (t + 1) % 1; const v = t < 1 / 6 ? p + (q - p) * 6 * t : t < 1 / 2 ? q : t < 2 / 3 ? p + (q - p) * (2 / 3 - t) * 6 : p; return Math.round(v * 255).toString(16).padStart(2, '0') }
+  return `#${f(h + 1 / 3)}${f(h)}${f(h - 1 / 3)}`
+}
+
+/** Background and text colour of one tag; the choice applies to the tag on every offer and store. */
+function TagStyleEditor({ tag, onClose }: { tag: string; onClose: () => void }) {
+  const qc = useQueryClient()
+  const current = useTagStyles()(tag)
+  const [bg, setBg] = useState(current?.bg ?? hueHex(tag))
+  const [fg, setFg] = useState(current?.fg ?? '#212529')
+  const save = useMutation({
+    mutationFn: (reset: boolean) => api.put('/tag-styles', reset ? { name: tag } : { name: tag, bg, fg }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['tag-styles'] }); onClose() },
+  })
+  return (
+    <div className="tag-style-editor">
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <span className="tag-chip" style={tagCss(tag, { name: tag, bg, fg })}>{tag}</span>
+        <button type="button" className="ghost small" onClick={onClose} aria-label="Close">✕</button>
+      </div>
+      <div className="row" style={{ gap: 6, marginTop: 8 }}>
+        {TAG_PRESETS.map(([b, f]) => (
+          <button key={b} type="button" className="tag-swatch" style={{ background: b, color: f }} title={`${b} / ${f}`}
+            onClick={() => { setBg(b); setFg(f) }}>Aa</button>))}
+      </div>
+      <div className="row" style={{ gap: 14, marginTop: 8 }}>
+        <label className="row" style={{ gap: 6 }}><input type="color" value={bg} onChange={(e) => setBg(e.target.value)} /> <small>Background</small></label>
+        <label className="row" style={{ gap: 6 }}><input type="color" value={fg} onChange={(e) => setFg(e.target.value)} /> <small>Text</small></label>
+      </div>
+      <small className="muted" style={{ display: 'block', marginTop: 6 }}>Applies to "{tag}" on every offer and store.</small>
+      <div className="row" style={{ gap: 8, marginTop: 8 }}>
+        <button type="button" className="primary small" disabled={save.isPending} onClick={() => save.mutate(false)}>Save colours</button>
+        {current && <button type="button" className="small" disabled={save.isPending} onClick={() => save.mutate(true)}>Automatic colour</button>}
+      </div>
+      <ErrorBox error={save.error} />
     </div>
   )
 }

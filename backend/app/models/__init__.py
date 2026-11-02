@@ -20,6 +20,7 @@ from app.models.offers import (
     DiscountReportRow,
     Offer,
     PromoEvent,
+    TagStyle,
 )
 from app.models.store import AppSetting, Store, StoreObjective
 from app.models.strategy import (
@@ -36,6 +37,7 @@ __all__ = [
     "AppSetting",
     "AuditLog",
     "Collection",
+    "TagStyle",
     "CostRecord",
     "Coupon",
     "Customer",

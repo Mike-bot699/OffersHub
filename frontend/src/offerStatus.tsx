@@ -1,7 +1,7 @@
 // Offer status (operational stage, set by people or by store sync for detected offers) and
 // technical status (what the connected store shows) are kept apart everywhere they appear.
 import { useState, type ReactNode } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './api'
 import { date, label, money, num, pct } from './format'
 import { CheckDropdown, DemoBadge, ErrorBox, useSort } from './ui'
@@ -288,10 +288,25 @@ export function tagHue(t: string) {
   return h
 }
 
-export function TagChip({ tag, onRemove }: { tag: string; onRemove?: () => void }) {
+export type TagStyle = { name: string; bg: string; fg: string }
+
+/** Colours chosen for tags (shared by every store); tags without one keep their automatic hue. */
+export function useTagStyles() {
+  const q = useQuery({ queryKey: ['tag-styles'], queryFn: () => api.get<TagStyle[]>('/tag-styles'), staleTime: 60_000 })
+  const map = new Map((q.data ?? []).map((t) => [t.name.toLowerCase(), t]))
+  return (tag: string) => map.get(tag.trim().replace(/\s+/g, ' ').toLowerCase())
+}
+
+export function tagCss(tag: string, custom?: TagStyle) {
+  return custom ? { background: custom.bg, color: custom.fg, borderColor: custom.bg } : { ['--h' as string]: tagHue(tag) }
+}
+
+export function TagChip({ tag, onRemove, onClick }: { tag: string; onRemove?: () => void; onClick?: () => void }) {
+  const styleOf = useTagStyles()
   return (
-    <span className="tag-chip" style={{ ['--h' as string]: tagHue(tag) }}>
-      {tag}{onRemove && <button type="button" aria-label={`Remove ${tag}`} onClick={onRemove}>×</button>}
+    <span className={`tag-chip ${onClick ? 'clickable' : ''}`} style={tagCss(tag, styleOf(tag))} onClick={onClick}
+      title={onClick ? 'Click to change the colours' : undefined}>
+      {tag}{onRemove && <button type="button" aria-label={`Remove ${tag}`} onClick={(e) => { e.stopPropagation(); onRemove() }}>×</button>}
     </span>
   )
 }
@@ -308,6 +323,7 @@ export function suggestTags(name: string, have: string[]) {
 /** Tag filter chips for an offers table (only shown once some offer has a tag); "No tag" finds offers still to tag. */
 function useTagFilter(rows: Ev[]) {
   const [tagFilter, setTagFilter] = useState<string[]>([])
+  const styleOf = useTagStyles()
   const allTags = [...new Set(rows.flatMap((r) => r.tags ?? []))].sort((a, b) => a.localeCompare(b))
   const untagged = rows.filter((r) => !r.tags?.length).length
   const tagMatch = (r: Ev) => tagFilter.length === 0 || tagFilter.some((t) => (t === '' ? !r.tags?.length : r.tags?.includes(t)))
@@ -316,7 +332,8 @@ function useTagFilter(rows: Ev[]) {
         <div className="chips" style={{ marginBottom: 10 }}>
           <small className="muted" style={{ alignSelf: 'center' }}>Tags</small>
           {allTags.map((t) => (
-            <button key={t} type="button" className={`chip tag-filter ${tagFilter.includes(t) ? 'on' : ''}`} style={{ ['--h' as string]: tagHue(t) }}
+            <button key={t} type="button" className={`chip tag-filter ${tagFilter.includes(t) ? 'on' : ''}`}
+              style={styleOf(t) ? { borderColor: styleOf(t)!.bg, ...(tagFilter.includes(t) ? { background: styleOf(t)!.bg, color: styleOf(t)!.fg } : {}) } : { ['--h' as string]: tagHue(t) }}
               onClick={() => setTagFilter(tagFilter.includes(t) ? tagFilter.filter((x) => x !== t) : [...tagFilter, t])}>
               {t} <small className="muted">{rows.filter((r) => r.tags?.includes(t)).length}</small>
             </button>))}
@@ -388,9 +405,10 @@ export function PlanTable({ rows, onOpen, showResults = false, empty, filters }:
           <table>
             <thead><tr>
               {th('_start', 'Start Date', false)}{th('_end', 'End Date', false)}{th('_dur', 'Duration')}{th('_name', 'Name', false, 'name-cell')}
-              {th('_store', 'Store', false)}{th('_status', 'Status', false)}<th>Description</th><th>Level</th><th>Type</th><th>Offer</th>
-              <th>Discount Code</th><th>Code results</th><th className="num">Threshold</th><th>Technical Status</th><th>Bonus</th><th>Landing Page</th><th>Articles</th><th>Displayed</th>
+              {th('_store', 'Store', false)}<th>Displayed</th>{th('_status', 'Status', false)}<th>Technical Status</th>
+              <th>Offer</th><th>Discount Code</th><th>Code results</th>
               {showResults && <><th className="num">Offer orders</th><th className="num">Share of orders</th><th className="num">Offer sales</th></>}
+              <th className="num">Threshold</th><th>Level</th><th>Type</th><th>Bonus</th><th>Description</th><th>Landing Page</th><th>Articles</th>
             </tr></thead>
             <tbody>{sorted.map((e) => (
               <tr key={e.id} className="clickable" onClick={() => onOpen(e)}>
@@ -402,31 +420,31 @@ export function PlanTable({ rows, onOpen, showResults = false, empty, filters }:
                   {e.tags?.length > 0 && <div className="tag-row">{e.tags.map((t) => <TagChip key={t} tag={t} />)}</div>}</td>
                 <td>{e.is_demo ? <DemoBadge /> : <span className="badge">{e.store_code}</span>}</td>
                 <td style={{ whiteSpace: 'nowrap' }}>
+                  {e.display ? <small>{DISPLAY_TEXT[e.display] ?? label(e.display)}</small> : <span className="muted">—</span>}
+                  {e.has_banner && <div style={{ marginTop: 4 }}><BannerThumb eventId={e.id} name={e.name} /></div>}
+                </td>
+                <td style={{ whiteSpace: 'nowrap' }}>
                   <OfferStatusBadge status={e.status} />
                   {e.conflict_open && <div><span className="badge critical" title={e.status_conflict ?? ''}>▲ Conflict — review</span></div>}
                   {!e.conflict_open && e.review_prompts.length > 0 && <div><small className="warning-ink" title={e.review_prompts.join('\n')}>Review needed</small></div>}
                 </td>
-                <td className="clip" title={e.description ?? ''}><small>{e.description ?? '—'}</small></td>
-                <td style={{ minWidth: 120 }}><LevelCell e={e} /></td>
-                <td><small>{e.offer_type ? label(e.offer_type) : '—'}</small></td>
+                <td style={{ whiteSpace: 'nowrap' }}><TechCell e={e} /></td>
                 <td className="clip" title={e.offer_text ?? ''}><small>{e.offer_text ?? '—'}</small></td>
                 <td className="mono">{e.coupon_codes.join(', ') || <span className="muted">{e.activation === 'automatic' ? 'Automatic' : '—'}</span>}
                   {e.linked_discounts?.length > 0 && <div><small className="muted" style={{ fontFamily: 'inherit' }}>+ {e.linked_discounts.join(', ')}</small></div>}</td>
                 <td style={{ whiteSpace: 'nowrap' }}><CodeResults e={e} /></td>
-                <td className="num">{e.threshold_amount != null ? money(e.threshold_amount, e.currency) : <small className="muted">{e.threshold_text && e.threshold_text !== 'none' ? e.threshold_text : '—'}</small>}</td>
-                <td style={{ whiteSpace: 'nowrap' }}><TechCell e={e} /></td>
-                <td className="clip" title={e.bonus ?? ''}><small>{e.bonus ?? '—'}</small></td>
-                <td>{e.landing_page ? <a href={e.landing_page} target="_blank" rel="noreferrer noopener" onClick={(x) => x.stopPropagation()}><small>{e.landing_page.replace(/^https?:\/\/(www\.)?/, '').slice(0, 40)}</small></a> : <span className="muted">—</span>}</td>
-                <td className="clip" title={e.articles ?? ''}><small>{e.articles ?? '—'}</small></td>
-                <td style={{ whiteSpace: 'nowrap' }}>
-                  {e.display ? <small>{DISPLAY_TEXT[e.display] ?? label(e.display)}</small> : <span className="muted">—</span>}
-                  {e.has_banner && <div style={{ marginTop: 4 }}><BannerThumb eventId={e.id} name={e.name} /></div>}
-                </td>
                 {showResults && <>
                   <td className="num">{num(e.offer_orders)}</td>
                   <td className="num">{pct(e.offer_order_share)}</td>
                   <td className="num">{money(e.offer_sales, e.currency)}</td>
                 </>}
+                <td className="num">{e.threshold_amount != null ? money(e.threshold_amount, e.currency) : <small className="muted">{e.threshold_text && e.threshold_text !== 'none' ? e.threshold_text : '—'}</small>}</td>
+                <td style={{ minWidth: 120 }}><LevelCell e={e} /></td>
+                <td><small>{e.offer_type ? label(e.offer_type) : '—'}</small></td>
+                <td className="clip" title={e.bonus ?? ''}><small>{e.bonus ?? '—'}</small></td>
+                <td className="clip" title={e.description ?? ''}><small>{e.description ?? '—'}</small></td>
+                <td>{e.landing_page ? <a href={e.landing_page} target="_blank" rel="noreferrer noopener" onClick={(x) => x.stopPropagation()}><small>{e.landing_page.replace(/^https?:\/\/(www\.)?/, '').slice(0, 40)}</small></a> : <span className="muted">—</span>}</td>
+                <td className="clip" title={e.articles ?? ''}><small>{e.articles ?? '—'}</small></td>
               </tr>))}
             </tbody>
           </table>

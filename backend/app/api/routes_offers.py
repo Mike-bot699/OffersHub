@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api.common import DB, Period, get_store, to_dict
 from app.core.errors import NotFoundError, ValidationError
-from app.models import Coupon, Offer, PromoEvent, Store
+from app.models import Coupon, Offer, PromoEvent, Store, TagStyle
 from app.models.enums import OFFER_STATUSES, DataSource, OfferType, TechnicalStatus
 from app.offers.collections import attach_levels
 from app.offers.discount_report import offer_results
@@ -488,3 +488,43 @@ def clean_tags(tags: list[str]) -> list[str]:
 def _check_dates(start, end):
     if start and end and end < start:
         raise ValidationError("End date is before start date.")
+
+
+# ---- tag colours ----------------------------------------------------------------------------
+HEX = r"^#[0-9a-fA-F]{6}$"
+
+
+class TagStyleIn(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+    bg: str | None = Field(default=None, pattern=HEX)  # both empty: back to the automatic colour
+    fg: str | None = Field(default=None, pattern=HEX)
+
+
+@router.get("/tag-styles")
+def list_tag_styles(db: Session = DB):
+    return [{"name": t.name, "bg": t.bg, "fg": t.fg} for t in db.scalars(select(TagStyle).order_by(TagStyle.key))]
+
+
+@router.put("/tag-styles")
+def put_tag_style(body: TagStyleIn, db: Session = DB):
+    from app.db.base import utcnow
+
+    name = " ".join(body.name.split())
+    key = name.lower()
+    t = db.scalar(select(TagStyle).where(TagStyle.key == key))
+    if not body.bg and not body.fg:
+        if t:
+            db.delete(t)
+            audit(db, "tag_style.reset", "tag_style", t.id, details={"name": name})
+        db.commit()
+        return {"name": name, "bg": None, "fg": None}
+    if not body.bg or not body.fg:
+        raise ValidationError("Set both the background and the text colour.")
+    if t is None:
+        t = TagStyle(key=key, name=name, bg=body.bg, fg=body.fg)
+        db.add(t)
+    t.name, t.bg, t.fg, t.updated_at = name, body.bg.lower(), body.fg.lower(), utcnow()
+    db.flush()
+    audit(db, "tag_style.set", "tag_style", t.id, details={"name": name, "bg": t.bg, "fg": t.fg})
+    db.commit()
+    return {"name": t.name, "bg": t.bg, "fg": t.fg}

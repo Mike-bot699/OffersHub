@@ -203,3 +203,16 @@ class Collection(Base):
     disjunctive: Mapped[bool | None] = mapped_column()
     product_ids: Mapped[list[Any]] = mapped_column(default=list)  # Shopify product ids
     synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class TagStyle(Base):
+    """Colours chosen for an event tag; one per tag name (case-insensitive), shared by every store."""
+
+    __tablename__ = "tag_styles"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    key: Mapped[str] = mapped_column(String(40), unique=True)  # lower-case tag name
+    name: Mapped[str] = mapped_column(String(40))
+    bg: Mapped[str] = mapped_column(String(7))  # #rrggbb
+    fg: Mapped[str] = mapped_column(String(7))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

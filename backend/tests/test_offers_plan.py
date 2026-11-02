@@ -114,3 +114,14 @@ def test_live_offer_completes_after_its_end_date(db, store):
     assert got["planned"]["status"] == "scheduled"  # never live: left for the user to confirm
     h = got["ended"]["status_history"][-1]
     assert h["source"] == "auto" and "2026-11-01" in h["note"]
+
+
+def test_tag_colours_set_shared_and_reset(db, store):
+    c = _client()
+    assert c.put("/api/tag-styles", json={"name": "Early Black Friday", "bg": "#000000", "fg": "#FFFFFF"}).status_code == 200
+    c.put("/api/tag-styles", json={"name": "early black  friday", "bg": "#111111", "fg": "#ffffff"})  # same tag, any case
+    assert c.get("/api/tag-styles").json() == [{"name": "early black friday", "bg": "#111111", "fg": "#ffffff"}]
+    assert c.put("/api/tag-styles", json={"name": "X", "bg": "black", "fg": "#ffffff"}).status_code == 422
+    assert c.put("/api/tag-styles", json={"name": "X", "bg": "#000000"}).status_code == 422  # both colours needed
+    c.put("/api/tag-styles", json={"name": "Early Black Friday"})  # no colours: automatic again
+    assert c.get("/api/tag-styles").json() == []
