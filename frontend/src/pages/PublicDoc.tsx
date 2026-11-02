@@ -12,7 +12,7 @@ type DocEvent = {
   offer: string | null; codes: string[]; threshold: string | null; activation: string | null
   bonus: { free_shipping: string | null; giveaway_product: string | null; free_gift: string | null } | null
   products: string | null; channels: { key: string; name: string }[]
-  forecast: { orders: number | null; uses: number | null; aov: string | null; estimate: boolean; basis?: string } | null
+  forecast: { orders: number | null; uses: number | null; aov: string | null; estimate: boolean; basis?: string; missing?: string } | null
   extra_details: string | null
   changes: { date: string; items: { field: string; text: string }[] } | null
 }
@@ -98,7 +98,8 @@ function EventCard({ e, token }: { e: DocEvent; token: string }) {
         {e.products && <Field label="Products">{e.products}</Field>}
         {e.channels.length > 0 && <Field label="Advertising">{e.channels.map((c) => <span key={c.key} className="pd-tag sm pd-ch" style={{ background: CHANNEL_COLOR[c.key], color: '#fff' }}>{c.name}</span>)}</Field>}
       </div>
-      {e.forecast && (
+      {e.forecast?.missing && <div className="pd-box"><b>Forecast</b><span className="pd-meta" style={{ margin: 0 }}>{e.forecast.missing}</span></div>}
+      {e.forecast && !e.forecast.missing && (
         <div className="pd-box"><b>Forecast</b>
           {e.forecast.estimate && <span className="pd-est" title="From the same event last year: its codes' orders, scaled to this year's days when daily data exist, and its AOV. Replaced by a forecast typed on the offer.">estimate · {e.forecast.basis}</span>}
           {e.forecast.orders != null && <span><em>{e.forecast.orders}</em> orders</span>}

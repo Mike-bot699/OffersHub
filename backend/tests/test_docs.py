@@ -263,7 +263,7 @@ def test_forecast_from_the_same_event_last_year(db, c):
                                                             "basis": "last year BF2025: 1,537 orders in 7 days"}
     assert ev["Cyber Monday, Curious Clicks"]["forecast"]["orders"] == 1370  # no days: last year's total as is
     assert ev["24 Little Wonders"]["forecast"] is None  # no last-year codes: no estimate
-    assert ev["Deck the Shelves"]["forecast"] is None  # only a report that does not cover Dec 2025
+    assert ev["Deck the Shelves"]["forecast"]["missing"] == "no sales data yet for last year's JINGLE15"  # said, not hidden
     c.patch(f"/api/events/{bf.id}", json={"forecast_orders": 1400})
     ev = {e["name"]: e for e in c.get(f"/api/public/docs/{doc['token']}").json()["events"]}
     assert ev["Black Friday for Big Ideas"]["forecast"]["estimate"] is False  # typed forecast wins

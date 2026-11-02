@@ -164,7 +164,12 @@ def assemble(db: Session, doc: OfferDoc, today: date) -> dict[str, Any]:
         if e.forecast_orders or e.forecast_uses or e.forecast_aov:
             return {"orders": e.forecast_orders, "uses": e.forecast_uses, "aov": _money(e.forecast_aov), "estimate": False}
         est = forecast_estimate(db, e, ly_cache)
-        return {"orders": est["orders"], "uses": None, "aov": _money(est["aov"]), "estimate": True, "basis": est["basis"]} if est else None
+        if est:
+            return {"orders": est["orders"], "uses": None, "aov": _money(est["aov"]), "estimate": True, "basis": est["basis"]}
+        if e.compare_codes:  # said, not hidden: the comparison is set but last year's sales are not in OffersHub yet
+            return {"orders": None, "uses": None, "aov": None, "estimate": True,
+                    "missing": f"no sales data yet for last year's {', '.join(e.compare_codes)}"}
+        return None
 
     def event_out(e: PromoEvent) -> dict:
         s = by_id[e.store_id]
