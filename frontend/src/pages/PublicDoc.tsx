@@ -168,7 +168,7 @@ export function DocBody({ d, token }: { d: DocData; token: string }) {
         {d.focus.length > 0 && <>
           <SectionHead id="focus" />
           {d.focus_rule && <div className="pd-meta">{d.focus_rule} · recalculated each time the doc is opened</div>}
-          <table className="pd-table"><thead><tr>{multi && <th>Store</th>}<th>Product</th><th>SKU</th><th>Performance</th><th>Extra tags</th></tr></thead>
+          <table className="pd-table pd-focus"><thead><tr>{multi && <th>Store</th>}<th>Product</th><th>SKU</th><th>Performance</th><th>Extra tags</th></tr></thead>
             <tbody>{d.focus.map((p) => (
               <tr key={p.id}>
                 {multi && <td data-label="Store">{p.store_code}</td>}

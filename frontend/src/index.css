@@ -362,6 +362,13 @@ ul.tight li { margin: 2px 0; }
   .pd-table td::before { content: attr(data-label); flex: 0 0 96px; color: #6b7280; font-size: 12px; padding-top: 2px; }
   .pd-table td.pd-main { font-weight: 600; } .pd-table td.pd-main::before { content: none; }
   .pd-table td.pd-mono { white-space: normal; }
+  /* Products to focus: one compact line per product (name and tags), no labels, no card */
+  .pd-focus tr { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; border: 0; border-bottom: 1px solid #e5e7eb; border-radius: 0; padding: 7px 0; margin: 0; }
+  .pd-focus td { display: inline-flex; width: auto; padding: 0; }
+  .pd-focus td::before { content: none; }
+  .pd-focus td.pd-main { flex: 1 1 0; min-width: 0; font-weight: 500; font-size: 14px; line-height: 1.3; }
+  .pd-focus td:not(.pd-main) { flex: none; }
+  .pd-focus td.pd-mono { display: none; }
 }
 @media print {
   .pd-wrap { background: #fff; padding: 0; } .pd-bar, .pd-i, .pd-toc { display: none; }
