@@ -14,7 +14,7 @@ from app.offers.collections import attach_levels
 from app.offers.discount_report import offer_results
 from app.offers.monitoring import alerts, measure_event, offer_history_stats, verify_event
 from app.offers.performance import discount_analysis, offer_performance
-from app.offers.status import STATUS_LABELS, acknowledge_conflict, set_status, sync_store_offers
+from app.offers.status import STATUS_LABELS, acknowledge_conflict, close_ended, set_status, sync_store_offers
 from app.offers.status import describe as describe_status
 from app.offers.status import refresh as refresh_status
 from app.services.audit import audit
@@ -190,6 +190,7 @@ def list_events(store_id: int | None = None, status: str | None = None, start: d
                 end: date | None = None, include_demo: bool = False, needs_review: bool = False,
                 when: str | None = None, db: Session = DB):
     """when=plan: offers whose dates are running or still ahead; when=expired: offers whose end date has passed."""
+    close_ended(db, store_id=store_id)
     q = select(PromoEvent, Store.code, Store.currency, Store.is_demo).join(Store, Store.id == PromoEvent.store_id)
     if store_id:
         q = q.where(PromoEvent.store_id == store_id)
@@ -221,6 +222,7 @@ def list_events(store_id: int | None = None, status: str | None = None, start: d
 def live_offers(store_id: int | None = None, include_demo: bool = False, recent_days: int = 60, db: Session = DB):
     """Offers that are current or need attention: every non-final status, plus completed or
     cancelled offers that ended recently or still have something to review."""
+    close_ended(db, store_id=store_id)
     from datetime import timedelta
 
     today = date.today()
@@ -246,6 +248,7 @@ def live_offers(store_id: int | None = None, include_demo: bool = False, recent_
 @router.get("/events/{event_id}")
 def get_event(event_id: int, db: Session = DB):
     e = _event(db, event_id)
+    close_ended(db, store_id=e.store_id)
     s = db.get(Store, e.store_id)
     row = _event_out(db, e, s.code, s.currency, s.is_demo)
     offer_results(db, [row])
@@ -454,6 +457,8 @@ def overview(store_id: int | None = None, include_demo: bool = False, period: tu
     """Offers & discounts overview. One store: KPIs from its orders. All stores: one row per store,
     each in its own currency (amounts are never added across currencies)."""
     from app.offers.overview import store_overview
+
+    close_ended(db, store_id=store_id)
 
     if store_id:
         return store_overview(db, get_store(db, store_id), *period)

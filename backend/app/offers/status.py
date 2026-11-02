@@ -188,6 +188,34 @@ def acknowledge_conflict(db: Session, ev: PromoEvent, note: str | None = None) -
           details={"conflict": ev.status_conflict, "note": note})
 
 
+def business_today() -> date:
+    """Today in the stores' business day (London), the day platform dates belong to."""
+    from zoneinfo import ZoneInfo
+
+    return datetime.now(ZoneInfo("Europe/London")).date()
+
+
+def close_ended(db: Session, *, store_id: int | None = None, today: date | None = None) -> int:
+    """Live or Paused offers whose end date has passed become Completed. The end date is the last
+    day the offer runs; the change is recorded in the status history as automatic."""
+    today = today or business_today()
+    q = select(PromoEvent).where(PromoEvent.status.in_([OfferStatus.LIVE, OfferStatus.PAUSED]),
+                                 PromoEvent.end_date.is_not(None), PromoEvent.end_date < today)
+    if store_id:
+        q = q.where(PromoEvent.store_id == store_id)
+    n = 0
+    for ev in db.scalars(q):
+        set_status(db, ev, OfferStatus.COMPLETED, source="auto", actor="system",
+                   note=f"End date {ev.end_date.isoformat()} has passed")
+        store = db.get(Store, ev.store_id)
+        if store is not None:
+            refresh(db, ev, store)
+        n += 1
+    if n:
+        db.commit()
+    return n
+
+
 def review_prompts(ev: PromoEvent, today: date | None = None) -> list[str]:
     """Date-based reminders. They ask for a decision; they never change the status."""
     today = today or date.today()

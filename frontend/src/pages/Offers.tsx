@@ -320,6 +320,8 @@ type ImportReport = {
   events_updated: number; offers_created: number; coupons_upserted: number; rows_skipped: number; stores_existing: string[]
   stores_created: string[]; store_settings_updated: string[]; issues: { sheet: string; row: number; store: string | null; event: string | null; issue: string }[]
   issue_counts: Record<string, number>
+  matched_changed: { store: string; event: string; was: string; by: string; start: string | null }[]
+  not_in_file: { store: string; event: string; id: number; start: string; status: string | null }[]
 }
 
 function ImportDiscounts() {
@@ -358,11 +360,22 @@ function ImportWorkbook() {
         <div className="mt">
           <div className={`notice ${r.dry_run ? 'info' : 'good'}`}>
             {r.dry_run ? <strong>Preview — nothing written yet.</strong> : <strong>Imported.</strong>}{' '}
-            {r.events_parsed} events parsed{!r.dry_run && ` (${r.events_created} new, ${r.events_updated} updated)`}, {r.rows_skipped} skipped, {r.coupons_upserted} coupons
+            {r.events_parsed} events parsed ({r.events_created} {r.dry_run ? 'to create' : 'new'}, {r.events_updated} {r.dry_run ? 'to update' : 'updated'}), {r.rows_skipped} skipped, {r.coupons_upserted} coupons
             {r.stores_created.length > 0 && <>; new stores: <strong>{r.stores_created.join(', ')}</strong> (created unconnected)</>}
             {r.stores_existing.length > 0 && <>; existing stores: {r.stores_existing.join(', ')}</>}.
             {r.sheets_ignored.length > 0 && <div><small>Sheets not imported: {r.sheets_ignored.join(', ')}</small></div>}
           </div>
+          {r.matched_changed?.some((m) => m.by === 'start date') && (
+            <div className="notice info mt"><small><strong>Renamed in the file</strong> — updated in place, matched by start date:{' '}
+              {r.matched_changed.filter((m) => m.by === 'start date').map((m) => `${m.was} → ${m.event}`).join(' · ')}</small></div>
+          )}
+          {r.matched_changed?.some((m) => m.by === 'name') && (
+            <div className="muted mt" style={{ fontSize: 12 }}>Dates or codes changed (matched by name): {r.matched_changed.filter((m) => m.by === 'name').map((m) => m.event).join(', ')}.</div>
+          )}
+          {r.not_in_file?.length > 0 && (
+            <div className="notice warning mt"><small><strong>No longer in the file</strong> — left unchanged in OffersHub. If they were dropped, open them in the Offers Plan to cancel or delete them:{' '}
+              {r.not_in_file.map((m) => `${m.event} (${m.store}, ${date(m.start)})`).join(' · ')}</small></div>
+          )}
           {Object.keys(r.issue_counts).length > 0 && (
             <>
               <div className="section-title">Data issues ({r.issues.length})</div>

@@ -132,7 +132,9 @@ def cron_sync(request: Request, db: Session = DB):
     if not secret or not hmac.compare_digest(request.headers.get("authorization", ""), f"Bearer {secret}"):
         raise AuthError("Not authorised.")
     from app.models import Integration
+    from app.offers.status import close_ended
 
+    completed = close_ended(db)
     out = {}
     for integ in db.scalars(select(Integration).where(Integration.provider == "elizeta",
                                                       Integration.credentials_encrypted.is_not(None),
@@ -140,7 +142,7 @@ def cron_sync(request: Request, db: Session = DB):
         store = db.get(Store, integ.store_id)
         if store and not store.is_demo:
             out[store.code] = ez_svc.sync(db, store, trigger="scheduled").status
-    return {"synced": out}
+    return {"synced": out, "offers_completed": completed}
 
 
 @router.post("/stores/{store_id}/elizeta/disconnect")

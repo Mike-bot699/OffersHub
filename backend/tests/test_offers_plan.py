@@ -97,3 +97,20 @@ def test_event_tags_cleaned_and_editable(db, store):
     assert ev["tags"] == ["Christmas"]
     assert c.patch(f"/api/events/{ev['id']}", json={"name": "Renamed"}).json()["tags"] == ["Christmas"]  # untouched
     assert c.patch(f"/api/events/{ev['id']}", json={"tags": []}).json()["tags"] == []
+
+
+def test_live_offer_completes_after_its_end_date(db, store):
+    from app.offers.status import close_ended
+
+    c = _client()
+    mk = lambda name, s, e, status: c.post("/api/events", json={"store_id": store.id, "name": name, "start_date": str(s),
+                                                                "end_date": str(e), "status": status}).json()
+    ended = mk("Tricks, Treats & Clever Feats", date(2026, 10, 25), date(2026, 11, 1), "live")
+    last_day = mk("Last Treats Standing", date(2026, 11, 1), date(2026, 11, 3), "live")
+    planned = mk("Never launched", date(2026, 10, 20), date(2026, 10, 30), "scheduled")
+    assert close_ended(db, today=date(2026, 11, 3)) == 1  # the end date is still a running day
+    got = {e: c.get(f"/api/events/{x['id']}").json() for e, x in (("ended", ended), ("last", last_day), ("planned", planned))}
+    assert got["ended"]["status"] == "completed" and got["last"]["status"] == "live"
+    assert got["planned"]["status"] == "scheduled"  # never live: left for the user to confirm
+    h = got["ended"]["status_history"][-1]
+    assert h["source"] == "auto" and "2026-11-01" in h["note"]

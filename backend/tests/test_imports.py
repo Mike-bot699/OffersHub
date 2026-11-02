@@ -184,3 +184,57 @@ def test_traffic_csv(db, store):
     # re-import with force updates instead of duplicating
     import_traffic(db, store, csv, "traffic.csv", dry_run=False, force=True)
     assert len(db.scalars(select(TrafficDaily)).all()) == 4
+
+
+def test_reimport_matches_changed_events_and_keeps_known_status(db):
+    """Real MAU calendar change (Oct → Nov 2026): codes and dates changed, one event renamed, one
+    dropped, one new; an unrecognised calendar status ('🔴 Off') never erases a known status."""
+    import io
+
+    import openpyxl
+    from sqlalchemy import select
+
+    from app.models import PromoEvent
+    from app.services.offers_import import import_offers_workbook
+
+    head = ["Start Date", "End Date", "Event Name", "Store", "Status", "🏷️ Offer", "🎟️ Coupon"]
+
+    def book(rows):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Events"
+        ws.append(head)
+        for r in rows:
+            ws.append(r)
+        buf = io.BytesIO()
+        wb.save(buf)
+        return buf.getvalue()
+
+    d = lambda s: __import__("datetime").datetime.fromisoformat(s)
+    october = book([
+        [d("2026-10-25"), d("2026-10-31"), "🎃 Tricks, Treats & Clever Feats", "MAU", "🟢 Live", "15% off", "SPOOKLAB | OWLPASS"],
+        [d("2026-11-04"), d("2026-11-10"), "⚫ The Curious Club Goes First", "MAU", None, "25% off", "FIRSTPEEK, ACORNPASS"],
+        [d("2026-11-20"), d("2026-11-26"), "⚫ Clever Shoppers Go Early", "MAU", None, "15% off", "HEADSTART, ROBINPASS"],
+        [d("2026-11-27"), d("2026-11-29"), "⚫ Black Friday for Big Ideas", "MAU", None, "20% off", "BIGIDEAS, FOXCLUB"],
+    ])
+    november = book([
+        [d("2026-10-25"), d("2026-11-01"), "🎃 Tricks, Treats & Clever Feats", "🧸 MAU", "🔴 Off", "15% off", "SPOOKLAB"],
+        [d("2026-11-01"), d("2026-11-03"), "🎃 Last Treats Standing", "🧸 MAU", None, "15% off", "SPOOKLAB"],
+        [d("2026-11-04"), d("2026-11-10"), "⚫ Curious Club: First Dibs", "🧸 MAU", None, "20% off", "FIRSTDIBS, CLUBDIBS"],
+        [d("2026-11-23"), d("2026-11-29"), "⚫ Black Friday for Big Ideas", "🧸 MAU", None, "20% off", "BF2026, FOXCLUB"],
+    ])
+    today = __import__("datetime").date(2026, 10, 30)
+    import_offers_workbook(db, october, "MAU-events-plan.xlsx", dry_run=False, create_missing_stores=True, today=today)
+    db.commit()
+    preview = import_offers_workbook(db, november, "MAU-events-update.xlsx", dry_run=True, today=today)
+    assert (preview.events_created, preview.events_updated) == (1, 3)
+    assert {(m["event"], m["by"]) for m in preview.matched_changed} >= {("Curious Club: First Dibs", "start date"),
+                                                                         ("Black Friday for Big Ideas", "name")}
+    assert [m["event"] for m in preview.not_in_file] == ["Clever Shoppers Go Early"]
+    import_offers_workbook(db, november, "MAU-events-update.xlsx", dry_run=False, today=today)
+    db.commit()
+    evs = {e.name: e for e in db.scalars(select(PromoEvent))}
+    assert len(evs) == 5 and "The Curious Club Goes First" not in evs  # renamed in place, no duplicates
+    assert evs["Black Friday for Big Ideas"].coupon_codes == ["BF2026", "FOXCLUB"]
+    assert evs["Tricks, Treats & Clever Feats"].status == "live"  # 'Off' not recognised: Live kept
+    assert evs["Clever Shoppers Go Early"].status == "scheduled"   # dropped from the file: left as is

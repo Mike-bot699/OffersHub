@@ -107,6 +107,10 @@ class ImportReport:
     store_settings_updated: list[str] = field(default_factory=list)
     issues: list[dict] = field(default_factory=list)  # {"sheet","row","store","event","issue"}
     issue_counts: dict[str, int] = field(default_factory=dict)
+    # Existing events found again although their name, dates or codes changed: {"store","event","was","by"}.
+    matched_changed: list[dict] = field(default_factory=list)
+    # Imported events in the file's date range that the file no longer has; left unchanged.
+    not_in_file: list[dict] = field(default_factory=list)
     batch_id: int | None = None
 
     def add_issue(self, sheet: str, row: int, issue: str, *, store: str | None = None, event: str | None = None):
@@ -298,6 +302,15 @@ def _import_events(db, rows, sheet, stores, report: ImportReport, batch, dry_run
         raise ValidationError(f"Events sheet is missing expected columns: {', '.join(missing)}")
     offers_cache: dict[str, Offer] = {}
     titles_cache: dict[int | None, dict[str, str]] = {}
+    claimed: set[int] = set()
+    spans: dict[int, list[date]] = {}
+    pool: dict[int, list[PromoEvent]] = {}
+    # Event names per store in this file: an event still named in the file is never re-matched by its date.
+    file_names: dict[str, set[str]] = {}
+    for row in rows[1:]:
+        c = store_code(str(_cell(row, col.get("store")) or ""))
+        if c and _cell(row, col.get("name")):
+            file_names.setdefault(c, set()).add(norm_key(strip_decoration(str(_cell(row, col.get("name"))))))
     collections_cache: dict[int | None, dict[str, str]] = {}
     sales_seen: dict[float, tuple[int, str, str]] = {}
 
@@ -383,7 +396,10 @@ def _import_events(db, rows, sheet, stores, report: ImportReport, batch, dry_run
         # Offer status is set only where the workbook gives evidence; dates alone never make an
         # offer Live or Completed. Everything else is left "not set" for the user to confirm.
         has_results = bool(offer_orders) or bool(sales)
-        cal_status = CALENDAR_STATUS.get(norm_key(strip_decoration(str(g("calendar_status") or ""))))
+        cal_raw = strip_decoration(str(g("calendar_status") or "")).strip()
+        cal_status = CALENDAR_STATUS.get(norm_key(cal_raw))
+        if cal_raw and not cal_status:
+            issues.append(f"calendar status '{cal_raw}' not recognised: offer status left unchanged")
         if notes and "not launched" in notes.lower():
             status, status_note = "cancelled", "Workbook note says it was not launched"
         elif cal_status:
@@ -427,6 +443,27 @@ def _import_events(db, rows, sheet, stores, report: ImportReport, batch, dry_run
         report.events_parsed += 1
         for issue in issues:
             report.add_issue(sheet, rn, issue, store=code, event=name)
+        ev = None
+        if store.id is not None:
+            if store.id not in pool:
+                pool[store.id] = list(db.scalars(select(PromoEvent).where(
+                    PromoEvent.store_id == store.id, PromoEvent.source == DataSource.SPREADSHEET_IMPORT)))
+            ev, how = _find_event(pool[store.id], nkey, name, start, claimed, file_names.get(code, set()))
+            if how == "ambiguous":
+                report.add_issue(sheet, rn, "several existing events could be this one: imported as a new event",
+                                 store=code, event=name)
+            elif ev is not None and how != "same":
+                report.matched_changed.append({"store": code, "event": name, "was": ev.name, "by": how,
+                                               "start": str(start) if start else None})
+            if ev is not None:
+                claimed.add(ev.id)
+            if start or end:
+                sp = spans.setdefault(store.id, [start or end, end or start])
+                sp[0], sp[1] = min(sp[0], start or end), max(sp[1], end or start)
+        if ev is None:
+            report.events_created += 1
+        else:
+            report.events_updated += 1
         if dry_run:
             continue
 
@@ -444,13 +481,10 @@ def _import_events(db, rows, sheet, stores, report: ImportReport, batch, dry_run
                 report.offers_created += 1
             offers_cache[okey] = offer
 
-        ev = db.scalar(select(PromoEvent).where(PromoEvent.store_id == store.id, PromoEvent.natural_key == nkey))
         if ev is None:
             ev = PromoEvent(store_id=store.id, natural_key=nkey, name=name)
             db.add(ev)
-            report.events_created += 1
-        else:
-            report.events_updated += 1
+        ev.natural_key = nkey
         ev.name = name
         ev.offer_id = offer.id if offer else None
         ev.offer_text = offer_text
@@ -458,7 +492,9 @@ def _import_events(db, rows, sheet, stores, report: ImportReport, batch, dry_run
         explicit_type = type_raw if type_raw in {t.value for t in OfferType} else None
         ev.offer_type = explicit_type or (cls["offer_type"] if offer_text else None)
         ev.start_date, ev.end_date = start, end
-        if ev.status_source in (None, "import"):  # never overwrite a status a person or the store has set
+        # Never overwrite a status a person or the store has set, and never erase a known status
+        # because the workbook has no usable one for the row.
+        if ev.status_source in (None, "import") and not (status is None and ev.status is not None):
             if ev.id is None:
                 ev.status = None
                 db.flush()
@@ -492,7 +528,36 @@ def _import_events(db, rows, sheet, stores, report: ImportReport, batch, dry_run
         ev.import_batch_id = batch.id if batch else None
         if ev.verification_status in (None, ""):
             ev.verification_status = VerificationStatus.DOCUMENTED_ONLY
+    for store_id, (lo, hi) in spans.items():
+        for e in pool.get(store_id, []):
+            if e.id not in claimed and e.start_date and lo <= e.start_date <= hi:
+                report.not_in_file.append({"store": next(c for c, s in stores.items() if s.id == store_id),
+                                           "event": e.name, "id": e.id, "start": str(e.start_date), "status": e.status})
     db.flush()
+
+
+def _find_event(pool: list[PromoEvent], nkey: str, name: str, start: date | None, claimed: set[int],
+                names_in_file: set[str]) -> tuple[PromoEvent | None, str | None]:
+    """The existing imported event a row stands for: same key; else the same name in the same year
+    (dates or codes changed); else the same start date, for an event whose old name the file no longer
+    has (renamed). Several candidates: none is chosen."""
+    free = [e for e in pool if e.id not in claimed]
+    same = [e for e in free if e.natural_key == nkey]
+    if same:
+        return same[0], "same"
+    n = norm_key(name)
+    by_name = [e for e in free if norm_key(e.name) == n and (not start or not e.start_date or e.start_date.year == start.year)]
+    if len(by_name) == 1:
+        return by_name[0], "name"
+    if len(by_name) > 1:
+        return None, "ambiguous"
+    if start:
+        by_start = [e for e in free if e.start_date == start and norm_key(e.name) not in names_in_file]
+        if len(by_start) == 1:
+            return by_start[0], "start date"
+        if len(by_start) > 1:
+            return None, "ambiguous"
+    return None, None
 
 
 def _import_codes(db, rows, sheet, stores, report: ImportReport, dry_run):
