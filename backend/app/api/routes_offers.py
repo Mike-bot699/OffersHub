@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
@@ -10,6 +10,7 @@ from app.api.common import DB, Period, get_store, to_dict
 from app.core.errors import NotFoundError, ValidationError
 from app.models import Coupon, Offer, PromoEvent, Store, TagStyle
 from app.models.enums import OFFER_STATUSES, DataSource, OfferType, TechnicalStatus
+from app.offers import changes as change_log
 from app.offers.collections import attach_levels
 from app.offers.discount_report import offer_results
 from app.offers.monitoring import alerts, measure_event, offer_history_stats, verify_event
@@ -20,6 +21,7 @@ from app.offers.status import refresh as refresh_status
 from app.services.audit import audit
 
 router = APIRouter(prefix="/api", tags=["offers"])
+AdChannel = Literal["facebook", "email", "google"]
 
 EVENT_STATUSES = "^(in_progress|scheduled|live|paused|completed|cancelled)$"
 
@@ -62,6 +64,15 @@ class EventIn(BaseModel):
     coupon_codes: list[str] = []
     linked_discounts: list[str] = []
     tags: list[str] = []
+    offer_description: str | None = None
+    free_shipping: str | None = Field(default=None, max_length=200)
+    giveaway_product: str | None = Field(default=None, max_length=300)
+    free_gift: str | None = Field(default=None, max_length=300)
+    forecast_orders: int | None = Field(default=None, ge=0)
+    forecast_uses: int | None = Field(default=None, ge=0)
+    forecast_aov: float | None = Field(default=None, ge=0)
+    extra_details: str | None = None
+    ad_channels: list[AdChannel] = []
     threshold_amount: float | None = None
     bonus: str | None = None
     eligible_products: list[Any] = []
@@ -98,6 +109,15 @@ class EventPatch(BaseModel):
     coupon_codes: list[str] | None = None
     linked_discounts: list[str] | None = None
     tags: list[str] | None = None
+    offer_description: str | None = None
+    free_shipping: str | None = Field(default=None, max_length=200)
+    giveaway_product: str | None = Field(default=None, max_length=300)
+    free_gift: str | None = Field(default=None, max_length=300)
+    forecast_orders: int | None = Field(default=None, ge=0)
+    forecast_uses: int | None = Field(default=None, ge=0)
+    forecast_aov: float | None = Field(default=None, ge=0)
+    extra_details: str | None = None
+    ad_channels: list[AdChannel] | None = None
     threshold_amount: float | None = None
     bonus: str | None = None
     est_incentive_cost: float | None = None
@@ -281,6 +301,9 @@ def update_event(event_id: int, body: EventPatch, db: Session = DB):
     e = _event(db, event_id)
     store = db.get(Store, e.store_id)
     changes = body.model_dump(exclude_unset=True)
+    before = change_log.snapshot(e)
+    if "ad_channels" in changes:
+        changes["ad_channels"] = list(dict.fromkeys(changes["ad_channels"] or []))
     if "tags" in changes:
         changes["tags"] = clean_tags(changes["tags"] or [])
     if "coupon_codes" in changes and changes["coupon_codes"] is not None:
@@ -293,6 +316,7 @@ def update_event(event_id: int, body: EventPatch, db: Session = DB):
     if {"coupon_codes", "threshold_amount", "offer_text", "start_date", "end_date"} & changes.keys():
         e.verification_status = "documented_only"
     refresh_status(db, e, store)
+    change_log.record(db, e, before, "manual")
     audit(db, "event.updated", "promo_event", e.id, store_id=e.store_id, details={"fields": sorted(changes)})
     db.commit()
     return _event_out(db, e, store.code, store.currency, store.is_demo)

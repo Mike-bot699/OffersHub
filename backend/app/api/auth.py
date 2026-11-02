@@ -51,7 +51,9 @@ def valid_token(token: str | None) -> bool:
 async def auth_middleware(request: Request, call_next):
     s = get_settings()
     path = request.url.path
-    if s.auth_mode == "password" and path.startswith("/api") and path not in OPEN_PATHS:
+    # /api/public/ serves shared live docs, readable by anyone holding a doc's secret link.
+    if s.auth_mode == "password" and path.startswith("/api") and path not in OPEN_PATHS \
+            and not path.startswith("/api/public/"):
         if not valid_token(request.cookies.get(COOKIE)):
             return JSONResponse({"error": {"code": "unauthorized", "message": "Sign in required."}}, status_code=401)
     return await call_next(request)

@@ -26,6 +26,7 @@ from app.core.errors import ConflictError, ValidationError
 from app.db.base import utcnow
 from app.models import Collection, Coupon, DataNote, ImportBatch, Offer, Product, PromoEvent, Store
 from app.models.enums import DataSource, OfferType, VerificationStatus
+from app.offers import changes as change_log
 from app.offers.classify import classify_offer
 from app.offers.status import set_status
 from app.services.audit import audit
@@ -488,6 +489,7 @@ def _import_events(db, rows, sheet, stores, report: ImportReport, batch, dry_run
                 report.offers_created += 1
             offers_cache[okey] = offer
 
+        before = change_log.snapshot(ev) if ev is not None else None
         if ev is None:
             ev = PromoEvent(store_id=store.id, natural_key=nkey, name=name)
             db.add(ev)
@@ -535,6 +537,8 @@ def _import_events(db, rows, sheet, stores, report: ImportReport, batch, dry_run
         ev.import_batch_id = batch.id if batch else None
         if ev.verification_status in (None, ""):
             ev.verification_status = VerificationStatus.DOCUMENTED_ONLY
+        if before is not None:
+            change_log.record(db, ev, before, "import")
     for store_id, (lo, hi) in spans.items():
         for e in pool.get(store_id, []):
             if e.id not in claimed and e.start_date and lo <= e.start_date <= hi:

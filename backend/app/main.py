@@ -7,7 +7,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api import auth, routes_admin, routes_data, routes_offers, routes_settings, routes_stores, routes_strategy
+from app.api import (
+    auth,
+    routes_admin,
+    routes_data,
+    routes_docs,
+    routes_offers,
+    routes_settings,
+    routes_stores,
+    routes_strategy,
+)
 from app.core.config import get_settings
 from app.core.errors import AppError
 from app.core.logging import configure_logging
@@ -63,7 +72,7 @@ def create_app() -> FastAPI:
             "code": "internal_error", "message": "Unexpected server error. Details are in the server log."}})
 
     for r in (auth.router, routes_admin.router, routes_stores.router, routes_data.router, routes_offers.router,
-              routes_strategy.router, routes_settings.router):
+              routes_strategy.router, routes_settings.router, routes_docs.router):
         app.include_router(r)
 
     dist = s.frontend_dist

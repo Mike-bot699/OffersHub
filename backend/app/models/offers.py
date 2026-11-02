@@ -69,6 +69,16 @@ class PromoEvent(TimestampMixin, Base):
     # Automatic discounts (no code) linked by hand to this offer, by their name in the discount report.
     linked_discounts: Mapped[list[Any]] = mapped_column(default=list)
     tags: Mapped[list[Any]] = mapped_column(default=list)  # user labels for quick reading, e.g. Halloween, BFCM
+    # Shared in live docs (Notes and analysis stay internal).
+    offer_description: Mapped[str | None] = mapped_column(Text)  # plain-language offer; empty = the Offer text
+    free_shipping: Mapped[str | None] = mapped_column(String(200))
+    giveaway_product: Mapped[str | None] = mapped_column(String(300))
+    free_gift: Mapped[str | None] = mapped_column(String(300))
+    forecast_orders: Mapped[int | None] = mapped_column(Integer)
+    forecast_uses: Mapped[int | None] = mapped_column(Integer)
+    forecast_aov: Mapped[float | None] = mapped_column(Money)
+    extra_details: Mapped[str | None] = mapped_column(Text)
+    ad_channels: Mapped[list[Any]] = mapped_column(default=list)  # facebook | email | google
     threshold_amount: Mapped[float | None] = mapped_column(Money)
     threshold_text: Mapped[str | None] = mapped_column(String(100))
     bonus: Mapped[str | None] = mapped_column(Text)
@@ -216,3 +226,57 @@ class TagStyle(Base):
     bg: Mapped[str] = mapped_column(String(7))  # #rrggbb
     fg: Mapped[str] = mapped_column(String(7))
     updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class EventChange(Base):
+    """A change to a field shown in live docs (who changed it is in the audit log)."""
+
+    __tablename__ = "event_changes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    event_id: Mapped[int] = mapped_column(ForeignKey("promo_events.id", ondelete="CASCADE"), index=True)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    field: Mapped[str] = mapped_column(String(40))
+    old: Mapped[str | None] = mapped_column(Text)
+    new: Mapped[str | None] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(String(24))  # manual | import
+
+
+class ExtraActivity(Base):
+    """Always-on or seasonal extras of a store (gift bag, warranty, free-gift popup…), listed in live docs."""
+
+    __tablename__ = "extra_activities"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    store_id: Mapped[int] = mapped_column(ForeignKey("stores.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    description: Mapped[str | None] = mapped_column(Text)
+    price: Mapped[str | None] = mapped_column(String(100))  # free text in USD, e.g. "$4.95" or "$4.25 + $19.98 value"
+    code: Mapped[str | None] = mapped_column(String(128))
+    start_date: Mapped[date | None] = mapped_column(Date)  # empty = always on
+    end_date: Mapped[date | None] = mapped_column(Date)
+    active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class OfferDoc(Base):
+    """A live document: a saved selection rendered on each visit at /d/<token>."""
+
+    __tablename__ = "offer_docs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    token: Mapped[str] = mapped_column(String(64), unique=True)
+    name: Mapped[str] = mapped_column(String(200))
+    tags: Mapped[list[Any]] = mapped_column(default=list)
+    store_ids: Mapped[list[Any]] = mapped_column(default=list)  # empty = every non-demo store
+    range_mode: Mapped[str] = mapped_column(String(16), default="fixed")  # fixed | next_days | this_month | next_month
+    start_date: Mapped[date | None] = mapped_column(Date)
+    end_date: Mapped[date | None] = mapped_column(Date)
+    days: Mapped[int | None] = mapped_column(Integer)
+    statuses: Mapped[list[Any]] = mapped_column(default=list)
+    sections: Mapped[dict[str, Any]] = mapped_column(default=dict)  # events, product_offers, extra_activities, bonus…
+    focus: Mapped[dict[str, Any]] = mapped_column(default=dict)  # {perf_tags, manual_tags, limit, pin, exclude}
+    custom_top: Mapped[str | None] = mapped_column(Text)
+    custom_bottom: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
