@@ -1,54 +1,76 @@
-"""Forecast estimate for an offer nobody has forecast by hand.
+"""Forecast estimate from the same event last year.
 
-Orders: median orders per day of the store's past offers shown the same way (on the site, or by
-email only), times the offer's length. AOV: median AOV of those offers. Measured from each past
-offer's codes in the discount report. Left out: cancelled offers, offers without measured orders,
-and codes shared by several offers (their figures cannot be split). Fewer than MIN_BASIS
-comparable offers: no estimate.
+The event's `compare_codes` (last year's codes, read from the calendar notes, e.g. "2025 BF2025 at
+20%…", or set by hand) are looked up in the store's sales-by-discount data. With daily data the
+orders are scaled to this year's length (orders per active day × days); without it, the code's
+total is used as is. AOV = last year's net sales / orders. No data for those codes: no estimate.
 """
 
-from datetime import date
-from statistics import median
+import re
+from datetime import date, timedelta
 
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import PromoEvent
-from app.offers.discount_report import offer_results
+from app.models import DiscountReport, DiscountReportRow, PromoEvent
 
-MIN_BASIS = 3
-
-
-def _kind(display: str | None) -> str:
-    return "email" if display == "email_only" else "site"
+NOTE_CODE = re.compile(r"\b(20\d\d)\s*:?\s+(?:ran\s+)?([A-Z][A-Z0-9]{3,})\b")
 
 
-def baselines(db: Session, store_ids: list[int], today: date) -> dict[tuple[int, str], dict]:
-    past = db.scalars(select(PromoEvent).where(PromoEvent.store_id.in_(store_ids), PromoEvent.end_date < today,
-                                               PromoEvent.start_date.is_not(None),
-                                               # status not set counts: most imported history has none
-                                               or_(PromoEvent.status.is_(None), PromoEvent.status != "cancelled")))
-    rows = [{"id": e.id, "store_id": e.store_id, "coupon_codes": e.coupon_codes or [], "linked_discounts": e.linked_discounts or [],
-             "start_date": e.start_date.isoformat(), "end_date": e.end_date.isoformat(), "_kind": _kind(e.display),
-             "_days": (e.end_date - e.start_date).days + 1} for e in past if e.coupon_codes or e.linked_discounts]
-    offer_results(db, rows)
-    per: dict[tuple[int, str], list[tuple[float, float | None]]] = {}
-    for r in rows:
-        res = r.get("discount_results") or {}
-        if res.get("status") != "ok" or not res.get("orders") or res.get("shared_with"):
+def codes_from_notes(notes: str | None, year: int | None) -> list[str]:
+    """Last year's codes cited in the notes ("2025 BF2025 …", "2025: BOO15 ran …")."""
+    if not notes or not year:
+        return []
+    return list(dict.fromkeys(c for y, c in NOTE_CODE.findall(notes) if int(y) == year - 1 and re.search(r"\d", c)))
+
+
+YEAR = timedelta(days=364)  # 52 weeks: last year's same weekdays (Black Friday moves with them)
+MARGIN = timedelta(days=21)
+
+
+def last_year(db: Session, store_id: int, codes: list[str], start: date, end: date) -> dict | None:
+    """Last year's figures for the codes in the same season: daily rows within three weeks of this
+    event's dates a year earlier, or a report without days that covers those dates. Uses outside
+    that season (e.g. a late redemption in January) are not last year's event."""
+    wanted = {c.upper() for c in codes}
+    if not wanted:
+        return None
+    ly_start, ly_end = start - YEAR, end - YEAR
+    reports = db.scalars(select(DiscountReport).where(DiscountReport.store_id == store_id)
+                         .order_by(DiscountReport.by_day.desc(), DiscountReport.period_end.desc())).all()
+    for rep in reports:
+        if not rep.by_day and not (rep.period_start <= ly_start and rep.period_end >= ly_end):
             continue
-        per.setdefault((r["store_id"], r["_kind"]), []).append((res["orders"] / r["_days"], res.get("aov")))
-    out = {}
-    for key, vals in per.items():
-        if len(vals) >= MIN_BASIS:
-            aovs = [a for _, a in vals if a]
-            out[key] = {"per_day": median(v for v, _ in vals), "aov": median(aovs) if aovs else None, "n": len(vals)}
-    return out
+        rows = [r for r in db.scalars(select(DiscountReportRow).where(DiscountReportRow.report_id == rep.id))
+                if r.name.upper() in wanted and (not rep.by_day or (r.day and ly_start - MARGIN <= r.day <= ly_end + MARGIN))]
+        if not rows:
+            continue
+        orders = sum(r.orders for r in rows)
+        if not orders:
+            continue
+        net = sum(r.net_sales or 0 for r in rows)
+        days = sorted({r.day for r in rows if r.day and r.orders})
+        span = (days[-1] - days[0]).days + 1 if days else None
+        found = sorted({r.name.upper() for r in rows})
+        return {"codes": found, "orders": orders, "aov": net / orders if orders else None, "days": span,
+                "by_day": bool(days)}
+    return None
 
 
-def estimate(base: dict[tuple[int, str], dict], e: PromoEvent) -> dict | None:
-    b = base.get((e.store_id, _kind(e.display)))
-    if not b or not e.start_date or not e.end_date:
+def estimate(db: Session, e: PromoEvent, cache: dict | None = None) -> dict | None:
+    if not e.compare_codes or not e.start_date or not e.end_date:
+        return None
+    key = (e.store_id, tuple(sorted(e.compare_codes)), e.start_date, e.end_date)
+    if cache is not None and key in cache:
+        ly = cache[key]
+    else:
+        ly = last_year(db, e.store_id, e.compare_codes, e.start_date, e.end_date)
+        if cache is not None:
+            cache[key] = ly
+    if not ly:
         return None
     days = (e.end_date - e.start_date).days + 1
-    return {"orders": max(1, round(b["per_day"] * days)), "aov": b["aov"], "basis": b["n"]}
+    orders = round(ly["orders"] / ly["days"] * days) if ly["by_day"] and ly["days"] else ly["orders"]
+    basis = f"last year {', '.join(ly['codes'])}: {ly['orders']:,} orders" + (f" in {ly['days']} days" if ly["days"] else "")
+    return {"orders": max(orders, 1), "aov": ly["aov"], "basis": basis}
+

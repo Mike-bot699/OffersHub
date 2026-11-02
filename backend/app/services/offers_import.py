@@ -28,6 +28,7 @@ from app.models import Collection, Coupon, DataNote, ImportBatch, Offer, Product
 from app.models.enums import DataSource, OfferType, VerificationStatus
 from app.offers import changes as change_log
 from app.offers.classify import classify_offer
+from app.offers.forecast import codes_from_notes
 from app.offers.status import set_status
 from app.services.audit import audit
 from app.services.parsing import (
@@ -513,6 +514,8 @@ def _import_events(db, rows, sheet, stores, report: ImportReport, batch, dry_run
         ev.activation = activation
         ev.coupon_codes = coupons
         ev.coupon_raw = coupon_raw or None
+        if not ev.compare_codes:  # last year's codes for the forecast, unless set by hand
+            ev.compare_codes = codes_from_notes(notes, start.year if start else year)
         ev.threshold_amount = thr_amount
         ev.threshold_text = thr_text
         ev.bonus = bonus

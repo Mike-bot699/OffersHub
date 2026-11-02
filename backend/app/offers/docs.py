@@ -19,7 +19,6 @@ from sqlalchemy.orm import Session
 
 from app.models import Coupon, EventChange, ExtraActivity, OfferDoc, Product, PromoEvent, Store, TagStyle
 from app.offers.changes import TRACKED
-from app.offers.forecast import baselines as forecast_baselines
 from app.offers.forecast import estimate as forecast_estimate
 from app.offers.offer_text import describe as describe_offer
 
@@ -159,12 +158,12 @@ def assemble(db: Session, doc: OfferDoc, today: date) -> dict[str, Any]:
                                                       EventChange.at >= since).order_by(EventChange.at)):
             changes.setdefault(c.event_id, []).append(c)
 
-    base = forecast_baselines(db, list(by_id), today) if sec["forecast"] and events else {}
+    ly_cache: dict = {}
 
     def _forecast(e: PromoEvent) -> dict | None:
         if e.forecast_orders or e.forecast_uses or e.forecast_aov:
             return {"orders": e.forecast_orders, "uses": e.forecast_uses, "aov": _money(e.forecast_aov), "estimate": False}
-        est = forecast_estimate(base, e)
+        est = forecast_estimate(db, e, ly_cache)
         return {"orders": est["orders"], "uses": None, "aov": _money(est["aov"]), "estimate": True, "basis": est["basis"]} if est else None
 
     def event_out(e: PromoEvent) -> dict:

@@ -81,6 +81,7 @@ class PromoEvent(TimestampMixin, Base):
     ad_channels: Mapped[list[Any]] = mapped_column(default=list)  # facebook | email | google
     coupon_raw: Mapped[str | None] = mapped_column(Text)  # calendar Coupon cell, e.g. "SPOOKLAB (new 15%) | OWLPASS (existing 20%)"
     email_variants: Mapped[list[Any]] = mapped_column(default=list)  # [{"subject", "preview"}]
+    compare_codes: Mapped[list[Any]] = mapped_column(default=list)  # last year's codes of the same event, for the forecast
     threshold_amount: Mapped[float | None] = mapped_column(Money)
     threshold_text: Mapped[str | None] = mapped_column(String(100))
     bonus: Mapped[str | None] = mapped_column(Text)

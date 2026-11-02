@@ -215,27 +215,55 @@ def test_doc_uses_written_description_then_generated_then_offer_text(db, c):
     assert ev["Tricks, Treats & Clever Feats"]["offer"] == "Written by hand."
 
 
-def test_forecast_estimate_from_past_site_offers(db, c):
-    """Real MAU 2026 codes (Shopify export dates, 'Sales by discount code' orders and net sales)."""
-    from app.offers.discount_report import import_discount_report
+def test_forecast_from_the_same_event_last_year(db, c):
+    """Real figures from the MAU calendar notes: 2025 BF2025 1,537 orders (AOV $131) over Black Friday
+    week; 2025 CYBER15 1,370 orders, AOV $139 (a report without days)."""
+    from datetime import timedelta
 
-    s, tricks, last = _mau(db)
-    past = [("Bright spring", "BRIGHT20", date(2026, 2, 9), date(2026, 3, 31)),      # 51 days, 211 orders
-            ("Easter", "EASTER10", date(2026, 3, 26), date(2026, 4, 30)),           # 36 days, 79 orders
-            ("Mother's Day", "MUMDAY15", date(2026, 4, 10), date(2026, 6, 15)),     # 67 days, 1 order
-            ("Daddy", "DADDY15", date(2026, 6, 16), date(2026, 9, 30))]             # 107 days, 43 orders
-    for n, code, a, b in past:
-        db.add(PromoEvent(store_id=s.id, name=n, coupon_codes=[code], status=None if code == "EASTER10" else "completed",
-                          start_date=a, end_date=b,
-                          display="full_site", source="manual"))
-    lines = [("BRIGHT20", 211, 22950.52), ("EASTER10", 79, 6715.0), ("MUMDAY15", 1, 85.0), ("DADDY15", 43, 4300.0)]
-    jsonl = "\n".join(f'{{"discount_name":"{n}","discount_method":"discount_code","applied_discounts":-1,"discounted_orders":{o},'
-                      f'"gross_sales":{v * 1.1},"net_sales":{v}}}' for n, o, v in lines).encode()
-    import_discount_report(db, s, jsonl, "Sales_by_discount_codes_-_2026-01-01_-_2026-10-30.jsonl", start=None, end=None, dry_run=False)
+    from app.models import DiscountReport, DiscountReportRow
+    from app.offers.forecast import codes_from_notes
+
+    s, *_ = _mau(db)
+    bf = PromoEvent(store_id=s.id, name="Black Friday for Big Ideas", status="scheduled", source="manual", display="full_site",
+                    start_date=date(2026, 11, 23), end_date=date(2026, 11, 29), coupon_codes=["BF2026", "FOXCLUB"],
+                    compare_codes=codes_from_notes("2025 BF2025 at 20% single code: 1,537 orders, AOV $131", 2026))
+    cy = PromoEvent(store_id=s.id, name="Cyber Monday, Curious Clicks", status="scheduled", source="manual", display="full_site",
+                    start_date=date(2026, 11, 30), end_date=date(2026, 12, 2), coupon_codes=["CYBER20"], compare_codes=["CYBER15"])
+    ny = PromoEvent(store_id=s.id, name="24 Little Wonders", status="scheduled", source="manual", display="email_only",
+                    start_date=date(2026, 12, 1), end_date=date(2026, 12, 24))
+    db.add_all([bf, cy, ny])
+    daily = DiscountReport(store_id=s.id, period_start=date(2025, 10, 1), period_end=date(2026, 10, 31), source="elizeta",
+                           by_day=True, created_at=__import__("datetime").datetime(2026, 11, 2))
+    flat = DiscountReport(store_id=s.id, period_start=date(2025, 11, 1), period_end=date(2025, 12, 31), source="shopify_export",
+                          by_day=False, created_at=__import__("datetime").datetime(2026, 11, 2))
+    db.add_all([daily, flat])
+    db.flush()
+    per_day = [220, 220, 220, 220, 219, 219, 219]  # 1,537 orders over 24-30 Nov 2025
+    db.add_all([DiscountReportRow(report_id=daily.id, store_id=s.id, day=date(2025, 11, 24) + timedelta(days=i), name="BF2025",
+                                  method="discount_code", orders=o, discounts=0, net_sales=o * 131.0) for i, o in enumerate(per_day)])
+    db.add(DiscountReportRow(report_id=flat.id, store_id=s.id, name="CYBER15", method="discount_code", orders=1370,
+                             discounts=0, net_sales=1370 * 139.0))
+    # late uses months later (real case: BF2025 shows 3 orders in the Jan-Oct 2026 Shopify report) are not last year's event
+    db.add(DiscountReportRow(report_id=daily.id, store_id=s.id, day=date(2026, 1, 20), name="BF2025", method="discount_code",
+                             orders=3, discounts=0, net_sales=359.0))
+    later = DiscountReport(store_id=s.id, period_start=date(2026, 1, 1), period_end=date(2026, 10, 30), source="shopify_export",
+                           by_day=False, created_at=__import__("datetime").datetime(2026, 11, 2))
+    db.add(later)
+    db.flush()
+    db.add(DiscountReportRow(report_id=later.id, store_id=s.id, name="JINGLE15", method="discount_code", orders=1,
+                             discounts=0, net_sales=135.1))
+    dk = PromoEvent(store_id=s.id, name="Deck the Shelves", status="scheduled", source="manual", display="full_site",
+                    start_date=date(2026, 12, 10), end_date=date(2026, 12, 15), compare_codes=["JINGLE15"])
+    db.add(dk)
     db.commit()
-    doc = c.post("/api/offer-docs", json={"name": "x", "start_date": "2026-10-25", "end_date": "2026-11-03"}).json()
+    assert bf.compare_codes == ["BF2025"]
+    doc = c.post("/api/offer-docs", json={"name": "x", "start_date": "2026-11-20", "end_date": "2026-12-31"}).json()
     ev = {e["name"]: e for e in c.get(f"/api/public/docs/{doc['token']}").json()["events"]}
-    f = ev["Tricks, Treats & Clever Feats"]["forecast"]
-    # orders/day 4.14, 2.19, 0.01, 0.40 → median 1.30; × 8 days = 10; AOV median of 108.77, 85.0, 85.0, 100.0 → 92.5
-    assert f == {"orders": 10, "uses": None, "aov": "$92.50", "estimate": True, "basis": 4}
-    assert ev["Last Treats Standing"]["forecast"] is None  # email-only: no comparable past email offers
+    assert ev["Black Friday for Big Ideas"]["forecast"] == {"orders": 1537, "uses": None, "aov": "$131", "estimate": True,
+                                                            "basis": "last year BF2025: 1,537 orders in 7 days"}
+    assert ev["Cyber Monday, Curious Clicks"]["forecast"]["orders"] == 1370  # no days: last year's total as is
+    assert ev["24 Little Wonders"]["forecast"] is None  # no last-year codes: no estimate
+    assert ev["Deck the Shelves"]["forecast"] is None  # only a report that does not cover Dec 2025
+    c.patch(f"/api/events/{bf.id}", json={"forecast_orders": 1400})
+    ev = {e["name"]: e for e in c.get(f"/api/public/docs/{doc['token']}").json()["events"]}
+    assert ev["Black Friday for Big Ideas"]["forecast"]["estimate"] is False  # typed forecast wins

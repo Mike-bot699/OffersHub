@@ -79,6 +79,7 @@ class EventIn(BaseModel):
     extra_details: str | None = None
     ad_channels: list[AdChannel] = []
     email_variants: list[EmailVariant] = []
+    compare_codes: list[str] = []
     threshold_amount: float | None = None
     bonus: str | None = None
     eligible_products: list[Any] = []
@@ -125,6 +126,7 @@ class EventPatch(BaseModel):
     extra_details: str | None = None
     ad_channels: list[AdChannel] | None = None
     email_variants: list[EmailVariant] | None = None
+    compare_codes: list[str] | None = None
     threshold_amount: float | None = None
     bonus: str | None = None
     est_incentive_cost: float | None = None
@@ -309,6 +311,8 @@ def update_event(event_id: int, body: EventPatch, db: Session = DB):
     store = db.get(Store, e.store_id)
     changes = body.model_dump(exclude_unset=True)
     before = change_log.snapshot(e)
+    if "compare_codes" in changes:
+        changes["compare_codes"] = list(dict.fromkeys(c.strip().upper() for c in changes["compare_codes"] or [] if c.strip()))
     if "email_variants" in changes:
         changes["email_variants"] = [v for v in changes["email_variants"] or [] if v["subject"].strip() or v["preview"].strip()]
     if "ad_channels" in changes:

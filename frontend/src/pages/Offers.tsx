@@ -117,7 +117,7 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
       const num = (s: string) => (s === '' ? null : Number(s))
       for (const [k, val] of Object.entries(f)) {
         if (['threshold_amount', 'offer_orders', 'total_orders', 'offer_sales', 'est_incentive_cost', 'forecast_orders', 'forecast_uses', 'forecast_aov'].includes(k)) body[k] = num(val)
-        else if (k === 'coupon_codes' || k === 'channels' || k === 'level_targets') body[k] = val.split(',').map((x) => x.trim()).filter(Boolean)
+        else if (k === 'coupon_codes' || k === 'channels' || k === 'level_targets' || k === 'compare_codes') body[k] = val.split(',').map((x) => x.trim()).filter(Boolean)
         else if (k === 'linked_discounts') body[k] = val.split(/,(?![^(]*\))/).map((x) => x.trim()).filter(Boolean)
         else if (k === 'target_orders') body.targets = { ...(base?.targets ?? {}), offer_orders: num(val) }
         else body[k] = val === '' ? null : val
@@ -184,6 +184,7 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
         <Field label="Free gift"><input value={v('free_gift', base?.free_gift)} onChange={set('free_gift')} placeholder={base?.bonus ?? ''} /></Field>
         <Field label="Forecast: orders"><input type="number" min={0} value={v('forecast_orders', base?.forecast_orders)} onChange={set('forecast_orders')} /></Field>
         <Field label="Forecast: code uses"><input type="number" min={0} value={v('forecast_uses', base?.forecast_uses)} onChange={set('forecast_uses')} /></Field>
+        <Field label="Last year's codes (forecast estimate)"><input value={v('compare_codes', base?.compare_codes?.join(', '))} onChange={set('compare_codes')} placeholder="e.g. BF2025" /></Field>
         <Field label="Forecast: AOV ($)"><input type="number" min={0} value={v('forecast_aov', base?.forecast_aov)} onChange={set('forecast_aov')} /></Field>
       </div>
       <div className="field mt">Advertising channels
