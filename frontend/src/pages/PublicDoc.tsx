@@ -190,7 +190,7 @@ export function DocBody({ d, token }: { d: DocData; token: string }) {
         </>}
         {d.extra_activities.length > 0 && <>
           <SectionHead id="extras" />
-          <table className="pd-table"><thead><tr>{multi && <th>Store</th>}<th>Activity</th><th>What the customer gets</th><th>Price / value</th></tr></thead>
+          <table className="pd-table pd-acts"><thead><tr>{multi && <th>Store</th>}<th>Activity</th><th>What the customer gets</th><th>Price / value</th></tr></thead>
             <tbody>{d.extra_activities.map((a, i) => (
               <tr key={i}>{multi && <td data-label="Store">{a.store_code}</td>}<td data-label="Activity" className="pd-main"><b>{a.name}</b></td>
                 <td data-label="What the customer gets">{a.description}{a.code && <> · code <b>{a.code}</b></>}</td><td data-label="Price / value">{a.price ?? '-'}</td></tr>))}
