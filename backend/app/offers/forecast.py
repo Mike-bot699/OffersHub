@@ -10,7 +10,7 @@ comparable offers: no estimate.
 from datetime import date
 from statistics import median
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.models import PromoEvent
@@ -25,7 +25,9 @@ def _kind(display: str | None) -> str:
 
 def baselines(db: Session, store_ids: list[int], today: date) -> dict[tuple[int, str], dict]:
     past = db.scalars(select(PromoEvent).where(PromoEvent.store_id.in_(store_ids), PromoEvent.end_date < today,
-                                               PromoEvent.start_date.is_not(None), PromoEvent.status != "cancelled"))
+                                               PromoEvent.start_date.is_not(None),
+                                               # status not set counts: most imported history has none
+                                               or_(PromoEvent.status.is_(None), PromoEvent.status != "cancelled")))
     rows = [{"id": e.id, "store_id": e.store_id, "coupon_codes": e.coupon_codes or [], "linked_discounts": e.linked_discounts or [],
              "start_date": e.start_date.isoformat(), "end_date": e.end_date.isoformat(), "_kind": _kind(e.display),
              "_days": (e.end_date - e.start_date).days + 1} for e in past if e.coupon_codes or e.linked_discounts]

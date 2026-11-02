@@ -225,7 +225,8 @@ def test_forecast_estimate_from_past_site_offers(db, c):
             ("Mother's Day", "MUMDAY15", date(2026, 4, 10), date(2026, 6, 15)),     # 67 days, 1 order
             ("Daddy", "DADDY15", date(2026, 6, 16), date(2026, 9, 30))]             # 107 days, 43 orders
     for n, code, a, b in past:
-        db.add(PromoEvent(store_id=s.id, name=n, coupon_codes=[code], status="completed", start_date=a, end_date=b,
+        db.add(PromoEvent(store_id=s.id, name=n, coupon_codes=[code], status=None if code == "EASTER10" else "completed",
+                          start_date=a, end_date=b,
                           display="full_site", source="manual"))
     lines = [("BRIGHT20", 211, 22950.52), ("EASTER10", 79, 6715.0), ("MUMDAY15", 1, 85.0), ("DADDY15", 43, 4300.0)]
     jsonl = "\n".join(f'{{"discount_name":"{n}","discount_method":"discount_code","applied_discounts":-1,"discounted_orders":{o},'
