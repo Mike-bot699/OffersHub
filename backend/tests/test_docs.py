@@ -70,10 +70,12 @@ def test_doc_content_follows_the_plan_live(db, c):
     a = c.post("/api/extra-activities", json={"store_id": s.id, "name": "Extended Warranty", "price": "$8.95",
                                               "description": "+1 year of free replacements and support"})
     assert a.status_code == 201
-    doc = c.post("/api/docs", json={"name": "MAU · Halloween 2026", "tags": ["Halloween"], "store_ids": [s.id],
+    doc = c.post("/api/offer-docs", json={"name": "MAU · Halloween 2026", "tags": ["Halloween"], "store_ids": [s.id],
                                     "start_date": "2026-10-25", "end_date": "2026-11-03",
                                     "focus": {"perf_tags": ["best_seller"], "manual_tags": ["q4 focus"]}}).json()
     d = c.get(f"/api/public/docs/{doc['token']}").json()
+    listed = c.get("/api/offer-docs").json()
+    assert isinstance(listed, list) and listed[0]["name"] == "MAU · Halloween 2026"  # not shadowed by the API docs page
     names = [e["name"] for e in d["events"]]
     assert names == ["Tricks, Treats & Clever Feats", "Last Treats Standing"]  # Curious Club after range, Rainy Days completed
     t, lt = d["events"]
@@ -97,9 +99,9 @@ def test_doc_content_follows_the_plan_live(db, c):
     assert t["offer"].startswith("New customers get 15% off")
     assert [x["name"] for x in t["channels"]] == ["Facebook", "Email"]
     assert t["forecast"] == {"orders": 40, "uses": None, "aov": "$120"}
-    assert {"field": "Code", "old": "SPOOKLAB, OWLPASS", "new": "SPOOKLAB"} in t["changes"]["items"]
+    assert [c["text"] for c in t["changes"]["items"]] == ["code SPOOKLAB, OWLPASS → SPOOKLAB"]  # first fills are not changes
     # sections can be switched off
-    c.put(f"/api/docs/{doc['id']}", json={**{k: doc[k] for k in ("name", "tags", "store_ids", "start_date", "end_date", "focus")},
+    c.put(f"/api/offer-docs/{doc['id']}", json={**{k: doc[k] for k in ("name", "tags", "store_ids", "start_date", "end_date", "focus")},
                                           "sections": {"changes": False, "forecast": False}})
     t = c.get(f"/api/public/docs/{doc['token']}").json()["events"][0]
     assert t["changes"] is None and t["forecast"] is None
@@ -107,11 +109,16 @@ def test_doc_content_follows_the_plan_live(db, c):
 
 def test_rolling_range_and_statuses(db, c):
     _s, *_ = _mau(db)
-    doc = c.post("/api/docs", json={"name": "Next week", "range_mode": "next_days", "days": 10,
+    doc = c.post("/api/offer-docs", json={"name": "Next week", "range_mode": "next_days", "days": 10,
                                     "statuses": ["scheduled"]}).json()
     assert doc["range"] == ["2026-10-27", "2026-11-05"]
     d = c.get(f"/api/public/docs/{doc['token']}").json()
     assert [e["name"] for e in d["events"]] == ["Last Treats Standing", "Curious Club: First Dibs"]
+    db.get(PromoEvent, d["events"][0]["id"]).status = None
+    db.commit()
+    assert [e["name"] for e in c.get(f"/api/public/docs/{doc['token']}").json()["events"]] == ["Curious Club: First Dibs"]
+    c.put(f"/api/offer-docs/{doc['id']}", json={"name": "Next week", "range_mode": "next_days", "days": 10, "statuses": ["scheduled", "not_set"]})
+    assert len(c.get(f"/api/public/docs/{doc['token']}").json()["events"]) == 2
 
 
 def test_public_link_needs_no_login_and_can_be_replaced(db, monkeypatch):
@@ -124,19 +131,19 @@ def test_public_link_needs_no_login_and_can_be_replaced(db, monkeypatch):
 
     _s, tricks, last = _mau(db)
     c = TestClient(create_app(), base_url="https://x")
-    assert c.post("/api/docs", json={"name": "x"}).status_code == 401  # managing docs needs sign-in
+    assert c.post("/api/offer-docs", json={"name": "x"}).status_code == 401  # managing docs needs sign-in
     c.post("/api/auth/login", json={"password": "correct horse"})
-    doc = c.post("/api/docs", json={"name": "MAU", "start_date": "2026-10-25", "end_date": "2026-11-03"}).json()
+    doc = c.post("/api/offer-docs", json={"name": "MAU", "start_date": "2026-10-25", "end_date": "2026-11-03"}).json()
     anon = TestClient(create_app(), base_url="https://x")
     assert anon.get(f"/api/public/docs/{doc['token']}").status_code == 200
-    assert anon.get("/api/docs").status_code == 401
+    assert anon.get("/api/offer-docs").status_code == 401
     # banners only for offers in the doc
     assert anon.get(f"/api/public/docs/{doc['token']}/banner/{tricks.id}").json()["kind"] == "html"
     assert anon.get(f"/api/public/docs/{doc['token']}/banner/{last.id}").status_code == 404
     docx = anon.get(f"/api/public/docs/{doc['token']}/docx")
     text = "\n".join(p.text for p in Document(io.BytesIO(docx.content)).paragraphs)
     assert "Tricks, Treats & Clever Feats" in text and "Home page, collection, product page" in text
-    new = c.post(f"/api/docs/{doc['id']}/new-link").json()
+    new = c.post(f"/api/offer-docs/{doc['id']}/new-link").json()
     assert anon.get(f"/api/public/docs/{doc['token']}").status_code == 404  # old link stops working
     assert anon.get(f"/api/public/docs/{new['token']}").status_code == 200
     get_settings.cache_clear()

@@ -125,3 +125,35 @@ function Popup({ banner, f, onClose }: { banner: Banner; f: Format; onClose: () 
     document.body,
   )
 }
+
+/** Desktop and mobile formats side by side at the same height; a click opens the zoomed popup.
+ *  Used by shared live docs (one desktop and one mobile, captions without sizes). */
+export function BannerPair({ banner, height = 150 }: { banner: Banner; height?: number }) {
+  const [open, setOpen] = useState<Format | null>(null)
+  if (!banner.content) return null
+  if (banner.kind === 'image') {
+    const f: Format = { label: 'Banner', doc: '', w: 0, h: 0 }
+    return (
+      <div className="pd-banners">
+        <button type="button" className="pd-bwrap" onClick={() => setOpen(f)}><img src={banner.content} alt="Banner" style={{ height, display: 'block' }} /></button>
+        {open && <Popup banner={banner} f={open} onClose={() => setOpen(null)} />}
+      </div>
+    )
+  }
+  const all = formats(banner.content)
+  const pick = [all.find((f) => /desktop/i.test(f.label)) ?? all[0], all.find((f) => /mobile/i.test(f.label))]
+    .filter((f, i, a): f is Format => !!f && a.indexOf(f) === i)
+  return (
+    <div className="pd-banners">
+      {pick.map((f) => (
+        <div key={f.label}>
+          <button type="button" className="pd-bwrap" title="Click to zoom" onClick={() => setOpen(f)}>
+            <Scaled doc={f.doc} w={f.w} h={f.h} width={f.w * (height / f.h)} />
+          </button>
+          <div className="pd-cap">{f.label.split(' · ')[0]}</div>
+        </div>
+      ))}
+      {open && <Popup banner={banner} f={{ ...open, label: open.label.split(' · ')[0] }} onClose={() => setOpen(null)} />}
+    </div>
+  )
+}

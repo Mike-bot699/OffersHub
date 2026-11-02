@@ -14,7 +14,7 @@ import re
 from datetime import date, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.models import EventChange, ExtraActivity, OfferDoc, Product, PromoEvent, Store, TagStyle
@@ -44,6 +44,44 @@ def doc_range(doc: OfferDoc, today: date) -> tuple[date, date]:
 
 def sections(doc: OfferDoc) -> dict[str, bool]:
     return {**SECTIONS, **{k: bool(v) for k, v in (doc.sections or {}).items() if k in SECTIONS}}
+
+
+EMPTY = {"", "-", "—", "–", "n/a", "na", "none"}
+
+
+def _clean(v: str | None) -> str | None:
+    """Placeholders the calendar uses for "nothing" ("—", "-", "N/A") count as empty."""
+    return None if v is None or str(v).strip().lower() in EMPTY else str(v).strip()
+
+
+def _change_value(field: str, v: str) -> str:
+    if field in ("start_date", "end_date"):
+        d = date.fromisoformat(v)
+        return f"{d.day} {d.strftime('%b')}"
+    if field == "display":
+        return {"full_site": "Full-Displayed", "email_only": "Email-Only", "hidden": "Hidden"}.get(v, v)
+    if field == "threshold_amount":
+        return f"${float(v):g}"
+    return v
+
+
+def _changes(items: list) -> list[dict]:
+    """Readable recent changes: only values that existed and changed (a first fill is not a change),
+    long texts summarised, at most three."""
+    out = []
+    for c in items:
+        if not _clean(c.old) or not _clean(c.new) or c.field == "name":
+            continue
+        label = TRACKED.get(c.field, c.field).lower()
+        old, new = _change_value(c.field, c.old), _change_value(c.field, c.new)
+        out.append({"field": label, "old": None, "new": None, "text": f"{label} updated"} if max(len(old), len(new)) > 40
+                   else {"field": label, "old": old, "new": new, "text": f"{label} {old} → {new}"})
+    seen, uniq = set(), []
+    for c in reversed(out):  # the latest change of each field
+        if c["field"] not in seen:
+            seen.add(c["field"])
+            uniq.append(c)
+    return list(reversed(uniq))[:3]
 
 
 def _money(v: float | None) -> str | None:
@@ -82,7 +120,10 @@ def assemble(db: Session, doc: OfferDoc, today: date) -> dict[str, Any]:
     stores = [s for s in db.scalars(select(Store).order_by(Store.code)) if not s.is_demo
               and (not doc.store_ids or s.id in doc.store_ids)]
     by_id = {s.id: s for s in stores}
-    q = select(PromoEvent).where(PromoEvent.store_id.in_(by_id), PromoEvent.status.in_(statuses))
+    wanted = PromoEvent.status.in_([x for x in statuses if x != "not_set"])
+    if "not_set" in statuses:  # offers whose status nobody has set yet
+        wanted = or_(wanted, PromoEvent.status.is_(None))
+    q = select(PromoEvent).where(PromoEvent.store_id.in_(by_id), wanted)
     events, product_offers = [], []
     since = today - timedelta(days=CHANGES_DAYS)
     for e in db.scalars(q.order_by(PromoEvent.start_date)):
@@ -106,9 +147,11 @@ def assemble(db: Session, doc: OfferDoc, today: date) -> dict[str, Any]:
     def event_out(e: PromoEvent) -> dict:
         s = by_id[e.store_id]
         ch = changes.get(e.id, [])
-        bonus = {"free_shipping": e.free_shipping, "giveaway_product": e.giveaway_product, "free_gift": e.free_gift}
-        if not any(bonus.values()) and e.bonus:
-            bonus["free_gift"] = e.bonus  # older offers: one Bonus text until the three fields are filled
+        readable = _changes(ch)
+        bonus = {"free_shipping": _clean(e.free_shipping), "giveaway_product": _clean(e.giveaway_product),
+                 "free_gift": _clean(e.free_gift)}
+        if not any(bonus.values()) and _clean(e.bonus):
+            bonus["free_gift"] = _clean(e.bonus)  # older offers: one Bonus text until the three fields are filled
         targets = e.level_targets or []
         return {
             "id": e.id, "store_code": s.code, "store_name": s.name, "name": e.name, "tags": _tags(e.tags, styles),
@@ -117,20 +160,18 @@ def assemble(db: Session, doc: OfferDoc, today: date) -> dict[str, Any]:
             "display": e.display, "display_text": DISPLAY.get(e.display or ""),
             "banner": bool(e.banner_content) and e.display == "full_site",
             "email": _email_parts(e.banner_message) if e.display == "email_only" else [],
-            "offer": e.offer_description or e.offer_text, "codes": e.coupon_codes or [],
+            "offer": _clean(e.offer_description) or _clean(e.offer_text), "codes": e.coupon_codes or [],
             "threshold": f"{_money(e.threshold_amount)}+" if e.threshold_amount else None,
             "threshold_amount": e.threshold_amount,
             "activation": {"manual_code": "Manual", "automatic": "Automatic"}.get(e.activation or ""),
             "bonus": bonus if sec["bonus"] else None,
             "products": "Storewide" if e.level == "store" or (e.level == "collection" and not targets)
-            else ", ".join(targets) or None,
+            else _clean(", ".join(targets)),
             "channels": [{"key": c, "name": CHANNELS[c]} for c in e.ad_channels or [] if c in CHANNELS],
             "forecast": {"orders": e.forecast_orders, "uses": e.forecast_uses, "aov": _money(e.forecast_aov)}
             if sec["forecast"] and (e.forecast_orders or e.forecast_uses or e.forecast_aov) else None,
-            "extra_details": e.extra_details if sec["extra_details"] else None,
-            "changes": {"date": ch[-1].at.date().isoformat(),
-                        "items": [{"field": TRACKED.get(c.field, c.field), "old": c.old, "new": c.new} for c in ch]}
-            if ch else None,
+            "extra_details": _clean(e.extra_details) if sec["extra_details"] else None,
+            "changes": {"date": ch[-1].at.date().isoformat(), "items": readable} if readable else None,
         }
 
     out_products = []
@@ -142,7 +183,7 @@ def assemble(db: Session, doc: OfferDoc, today: date) -> dict[str, Any]:
             for t in e.level_targets or [e.name]:
                 p = titles.get((e.store_id, t.strip().lower()))
                 out_products.append({"store_code": by_id[e.store_id].code, "name": t, "sku": p.source_id if p else None,
-                                     "url": _product_url(by_id[e.store_id], p), "offer": e.offer_description or e.offer_text,
+                                     "url": _product_url(by_id[e.store_id], p), "offer": _clean(e.offer_description) or _clean(e.offer_text),
                                      "event": e.name})
 
     focus = []
@@ -155,8 +196,8 @@ def assemble(db: Session, doc: OfferDoc, today: date) -> dict[str, Any]:
                             .order_by(ExtraActivity.store_id, ExtraActivity.id)):
             if (a.start_date and a.start_date > end) or (a.end_date and a.end_date < start):
                 continue
-            acts.append({"store_code": by_id[a.store_id].code, "name": a.name, "description": a.description,
-                         "price": a.price, "code": a.code})
+            acts.append({"store_code": by_id[a.store_id].code, "name": a.name, "description": _clean(a.description),
+                         "price": _clean(a.price), "code": _clean(a.code)})
 
     return {
         "name": doc.name, "tags": _tags(doc.tags, styles), "start_date": start.isoformat(), "end_date": end.isoformat(),

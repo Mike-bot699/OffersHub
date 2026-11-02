@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { OffersCalendar } from '../calendar'
+import { DocsTab } from './Docs'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, qs } from '../api'
 import { date, label, money, num, pct } from '../format'
@@ -33,7 +34,7 @@ export function OffersPlan() {
         <div className="kpi"><div className="k-label">Paused</div><div className="k-value">{n('paused')}</div></div>
         <div className="kpi"><div className="k-label">Need review</div><div className={`k-value ${rows.some((r) => r.conflict_open) ? 'critical-ink' : ''}`}>{rows.filter((r) => r.needs_review).length}</div><div className="k-sub">status or dates to confirm</div></div>
       </div>
-      <Tabs value={tab} onChange={setTab} tabs={[{ id: 'plan', label: 'Plan' }, { id: 'calendar', label: 'Calendar' }, { id: 'alerts', label: 'Monitoring' }]} />
+      <Tabs value={tab} onChange={setTab} tabs={[{ id: 'plan', label: 'Plan' }, { id: 'calendar', label: 'Calendar' }, { id: 'docs', label: 'Docs' }, { id: 'alerts', label: 'Monitoring' }]} />
       {tab === 'plan' && (
         <Card>
           {q.isLoading ? <Loading /> : q.error ? <ErrorBox error={q.error} /> : (
@@ -48,6 +49,7 @@ export function OffersPlan() {
           <Source>Bars span each offer's start and end dates; colours follow the Displayed field (or the offer status). Offers without dates are listed under the calendar, never placed on it.</Source>
         </Card>
       )}
+      {tab === 'docs' && <DocsTab />}
       {tab === 'alerts' && <Alerts />}
       <EventEditor ev={edit} onClose={() => setEdit(null)} />
     </>
@@ -88,6 +90,8 @@ function ExpiredOffers() {
   )
 }
 
+const AD_CHANNELS = [['facebook', 'Facebook'], ['email', 'Email'], ['google', 'Google']] as const
+
 function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => void }) {
   const { stores, storeId, meta } = useApp()
   const qc = useQueryClient()
@@ -97,6 +101,7 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
   const base = isNew || ev === null ? null : fresh && fresh.id === ev.id ? fresh : ev
   const [f, setF] = useState<Record<string, string>>({})
   const [tags, setTags] = useState<string[] | null>(null)  // null = not edited
+  const [channels, setChannels] = useState<string[] | null>(null)
   const v = (k: string, fallback: unknown) => (k in f ? f[k] : fallback == null ? '' : String(fallback))
   const editStore = base?.store_id ?? Number(f.store_id ?? storeId ?? stores[0]?.id)
   const report = useQuery({ queryKey: ['discount-report', editStore], enabled: !!editStore && ev !== null,
@@ -110,17 +115,18 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
       const body: Record<string, unknown> = {}
       const num = (s: string) => (s === '' ? null : Number(s))
       for (const [k, val] of Object.entries(f)) {
-        if (['threshold_amount', 'offer_orders', 'total_orders', 'offer_sales', 'est_incentive_cost'].includes(k)) body[k] = num(val)
+        if (['threshold_amount', 'offer_orders', 'total_orders', 'offer_sales', 'est_incentive_cost', 'forecast_orders', 'forecast_uses', 'forecast_aov'].includes(k)) body[k] = num(val)
         else if (k === 'coupon_codes' || k === 'channels' || k === 'level_targets') body[k] = val.split(',').map((x) => x.trim()).filter(Boolean)
         else if (k === 'linked_discounts') body[k] = val.split(/,(?![^(]*\))/).map((x) => x.trim()).filter(Boolean)
         else if (k === 'target_orders') body.targets = { ...(base?.targets ?? {}), offer_orders: num(val) }
         else body[k] = val === '' ? null : val
       }
       if (tags !== null) body.tags = tags
+      if (channels !== null) body.ad_channels = channels
       if (isNew) return api.post('/events', { store_id: Number(f.store_id ?? storeId ?? stores[0]?.id), name: f.name ?? '', ...body })
       return api.patch(`/events/${base!.id}`, body)
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['events'] }); setF({}); setTags(null); setFresh(null); onClose() },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['events'] }); setF({}); setTags(null); setChannels(null); setFresh(null); onClose() },
   })
   const verify = useMutation({ mutationFn: () => api.post<{ status: string; findings: string[] }>(`/events/${base!.id}/verify`),
     onSuccess: async () => { qc.invalidateQueries({ queryKey: ['events'] }); qc.invalidateQueries({ queryKey: ['live-offers'] }); setFresh(await api.get<Ev>(`/events/${base!.id}`)) } })
@@ -129,7 +135,7 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
   if (ev === null) return null
   const m = results.data?.measured
   return (
-    <Drawer open onClose={() => { setF({}); setTags(null); setFresh(null); onClose() }} title={<><h2>{isNew ? 'New offer' : base!.name}</h2>
+    <Drawer open onClose={() => { setF({}); setTags(null); setChannels(null); setFresh(null); onClose() }} title={<><h2>{isNew ? 'New offer' : base!.name}</h2>
       {!isNew && (f.description ?? base!.description) && <p className="drawer-desc">{f.description ?? base!.description}</p>}</>}>
       {base && (
         <div className="row" style={{ marginBottom: 10 }}>
@@ -167,6 +173,24 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
       <div className="mt"><Field label="Bonus / gift"><input value={v('bonus', base?.bonus)} onChange={set('bonus')} /></Field></div>
       <div className="mt"><Field label="Articles"><input value={v('articles', base?.articles)} onChange={set('articles')} /></Field></div>
       <div className="mt"><Field label="Banner message"><textarea value={v('banner_message', base?.banner_message)} onChange={set('banner_message')} /></Field></div>
+      <div className="section-title">Shared in docs</div>
+      <Field label="Offer description (plain language; empty = the Offer text)"><textarea rows={2} value={v('offer_description', base?.offer_description)} onChange={set('offer_description')}
+        placeholder="e.g. New customers get 15% off orders over $99 with code SPOOKLAB. Email subscribers only get 20% off orders over $99 with code OWLPASS." /></Field>
+      <div className="form-grid mt">
+        <Field label="Free shipping"><input value={v('free_shipping', base?.free_shipping)} onChange={set('free_shipping')} placeholder="e.g. over $99" /></Field>
+        <Field label="Give-away product"><input value={v('giveaway_product', base?.giveaway_product)} onChange={set('giveaway_product')} /></Field>
+        <Field label="Free gift"><input value={v('free_gift', base?.free_gift)} onChange={set('free_gift')} placeholder={base?.bonus ?? ''} /></Field>
+        <Field label="Forecast: orders"><input type="number" min={0} value={v('forecast_orders', base?.forecast_orders)} onChange={set('forecast_orders')} /></Field>
+        <Field label="Forecast: code uses"><input type="number" min={0} value={v('forecast_uses', base?.forecast_uses)} onChange={set('forecast_uses')} /></Field>
+        <Field label="Forecast: AOV ($)"><input type="number" min={0} value={v('forecast_aov', base?.forecast_aov)} onChange={set('forecast_aov')} /></Field>
+      </div>
+      <div className="field mt">Advertising channels
+        <div className="row" style={{ gap: 14 }}>{AD_CHANNELS.map(([k, l]) => (
+          <label key={k} className="row" style={{ gap: 6 }}><input type="checkbox" checked={(channels ?? base?.ad_channels ?? []).includes(k)}
+            onChange={() => { const cur = channels ?? base?.ad_channels ?? []; setChannels(cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k]) }} /> {l}</label>))}
+        </div>
+      </div>
+      <div className="mt"><Field label="Extra details (shown in docs; Notes stay internal)"><textarea rows={2} value={v('extra_details', base?.extra_details)} onChange={set('extra_details')} /></Field></div>
       {base && <BannerEditor ev={base} />}
       <div className="section-title">Recorded results (documented)</div>
       <div className="form-grid">
@@ -194,7 +218,7 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
         </>
       )}
       <div className="row mt">
-        <button className="primary" onClick={() => save.mutate()} disabled={save.isPending || (!isNew && Object.keys(f).length === 0 && tags === null)}>Save</button>
+        <button className="primary" onClick={() => save.mutate()} disabled={save.isPending || (!isNew && Object.keys(f).length === 0 && tags === null && channels === null)}>Save</button>
         {base && <button className="danger" onClick={() => confirm(`Delete event "${base.name}"?`) && del.mutate()}>Delete</button>}
       </div>
       {isNew && <div className="notice info mt"><small>Technical status starts as <strong>Not verified</strong>: it is checked against the connected store's synced discounts by the offer's coupon codes.</small></div>}

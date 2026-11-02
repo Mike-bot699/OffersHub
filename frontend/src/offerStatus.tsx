@@ -26,6 +26,8 @@ export type Ev = {
   has_banner: boolean; banner_kind: string | null; banner_filename: string | null
   duration_days: number | null; code_active_after_end: boolean
   linked_discounts: string[]; tags: string[]
+  offer_description: string | null; free_shipping: string | null; giveaway_product: string | null; free_gift: string | null
+  forecast_orders: number | null; forecast_uses: number | null; forecast_aov: number | null; extra_details: string | null; ad_channels: string[]
   level_resolved?: null | { target: string; status: 'matched' | 'ambiguous' | 'not_found'; title?: string; products?: number; kind?: string; published?: boolean | null }[]
   discount_results: null | {
     status: 'ok' | 'no_match' | 'after_report'; report_period?: [string, string]; report_end?: string; by_day?: boolean

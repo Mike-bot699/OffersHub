@@ -20,7 +20,7 @@ from app.offers.status import business_today
 from app.services.audit import audit
 
 router = APIRouter(prefix="/api", tags=["docs"])
-Status = Literal["in_progress", "scheduled", "live", "paused", "completed", "cancelled"]
+Status = Literal["in_progress", "scheduled", "live", "paused", "completed", "cancelled", "not_set"]
 
 
 class DocIn(BaseModel):
@@ -62,13 +62,13 @@ def _apply(d: OfferDoc, body: DocIn) -> None:
     d.updated_at = utcnow()
 
 
-@router.get("/docs")
+@router.get("/offer-docs")
 def list_docs(db: Session = DB):
     today = business_today()
     return [_doc_out(d, today) for d in db.scalars(select(OfferDoc).order_by(OfferDoc.updated_at.desc()))]
 
 
-@router.post("/docs", status_code=201)
+@router.post("/offer-docs", status_code=201)
 def create_doc(body: DocIn, db: Session = DB):
     d = OfferDoc(token=secrets.token_urlsafe(24), created_at=utcnow())
     _apply(d, body)
@@ -79,7 +79,7 @@ def create_doc(body: DocIn, db: Session = DB):
     return _doc_out(d, business_today())
 
 
-@router.put("/docs/{doc_id}")
+@router.put("/offer-docs/{doc_id}")
 def update_doc(doc_id: int, body: DocIn, db: Session = DB):
     d = _get(db, doc_id)
     _apply(d, body)
@@ -88,7 +88,7 @@ def update_doc(doc_id: int, body: DocIn, db: Session = DB):
     return _doc_out(d, business_today())
 
 
-@router.post("/docs/{doc_id}/new-link")
+@router.post("/offer-docs/{doc_id}/new-link")
 def new_link(doc_id: int, db: Session = DB):
     """A new secret link; the old one stops working at once."""
     d = _get(db, doc_id)
@@ -98,7 +98,7 @@ def new_link(doc_id: int, db: Session = DB):
     return _doc_out(d, business_today())
 
 
-@router.delete("/docs/{doc_id}", status_code=204)
+@router.delete("/offer-docs/{doc_id}", status_code=204)
 def delete_doc(doc_id: int, db: Session = DB):
     d = _get(db, doc_id)
     audit(db, "doc.deleted", "offer_doc", d.id, details={"name": d.name})
@@ -107,7 +107,7 @@ def delete_doc(doc_id: int, db: Session = DB):
     return Response(status_code=204)
 
 
-@router.get("/docs/{doc_id}/preview")
+@router.get("/offer-docs/{doc_id}/preview")
 def preview_doc(doc_id: int, db: Session = DB):
     return assemble(db, _get(db, doc_id), business_today())
 
