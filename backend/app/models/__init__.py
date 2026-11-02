@@ -37,7 +37,6 @@ __all__ = [
     "AppSetting",
     "AuditLog",
     "Collection",
-    "TagStyle",
     "CostRecord",
     "Coupon",
     "Customer",
@@ -63,6 +62,7 @@ __all__ = [
     "StoreObjective",
     "SyncJob",
     "SyncState",
+    "TagStyle",
     "TrafficDaily",
     "Variant",
 ]
