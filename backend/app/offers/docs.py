@@ -17,8 +17,9 @@ from typing import Any
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.models import EventChange, ExtraActivity, OfferDoc, Product, PromoEvent, Store, TagStyle
+from app.models import Coupon, EventChange, ExtraActivity, OfferDoc, Product, PromoEvent, Store, TagStyle
 from app.offers.changes import TRACKED
+from app.offers.offer_text import describe as describe_offer
 
 DEFAULT_STATUSES = ["live", "scheduled", "in_progress"]
 SECTIONS = {"focus": True, "events": True, "product_offers": True, "extra_activities": True, "bonus": True,
@@ -88,6 +89,14 @@ def _money(v: float | None) -> str | None:
     return None if v is None else f"${v:,.0f}" if float(v).is_integer() else f"${v:,.2f}"
 
 
+def _emails(e: PromoEvent) -> list[dict]:
+    """The offer's emails (subject + preview text); until some are entered, the one in the calendar's banner text."""
+    if e.email_variants:
+        return [{"subject": v.get("subject") or "", "preview": v.get("preview") or ""} for v in e.email_variants]
+    parts = {k.lower(): v for k, v in _email_parts(e.banner_message)}
+    return [{"subject": parts.get("subject", ""), "preview": parts.get("preheader", "")}] if parts.get("subject") else []
+
+
 def _email_parts(text: str | None) -> list[list[str]]:
     """'Subject: … | Preheader: … | CTA: …' as pairs; other texts are not an email brief."""
     out = []
@@ -138,6 +147,10 @@ def assemble(db: Session, doc: OfferDoc, today: date) -> dict[str, Any]:
         events.append(e)
     events.sort(key=lambda e: (by_id[e.store_id].code, e.start_date, e.name))
 
+    # The stores' discount data, so an offer can be described from its codes' values.
+    coupons: dict[int, dict[str, dict]] = {}
+    for c in db.scalars(select(Coupon).where(Coupon.store_id.in_(by_id)).order_by(Coupon.last_synced_at)):
+        coupons.setdefault(c.store_id, {})[c.code] = {"value": c.value, "value_type": c.value_type}
     changes: dict[int, list[EventChange]] = {}
     if sec["changes"] and events:
         for c in db.scalars(select(EventChange).where(EventChange.event_id.in_([e.id for e in events]),
@@ -159,8 +172,10 @@ def assemble(db: Session, doc: OfferDoc, today: date) -> dict[str, Any]:
             "when": _days_text(e.start_date, e.end_date), "status": e.status,
             "display": e.display, "display_text": DISPLAY.get(e.display or ""),
             "banner": bool(e.banner_content) and e.display == "full_site",
-            "email": _email_parts(e.banner_message) if e.display == "email_only" else [],
-            "offer": _clean(e.offer_description) or _clean(e.offer_text), "codes": e.coupon_codes or [],
+            "emails": _emails(e) if e.display == "email_only" else [],
+            "offer": _clean(e.offer_description)
+            or describe_offer(e.coupon_raw, e.threshold_amount, e.display, coupons.get(e.store_id))
+            or _clean(e.offer_text), "codes": e.coupon_codes or [],
             "threshold": f"{_money(e.threshold_amount)}+" if e.threshold_amount else None,
             "threshold_amount": e.threshold_amount,
             "activation": {"manual_code": "Manual", "automatic": "Automatic"}.get(e.activation or ""),

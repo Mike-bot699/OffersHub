@@ -102,6 +102,7 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
   const [f, setF] = useState<Record<string, string>>({})
   const [tags, setTags] = useState<string[] | null>(null)  // null = not edited
   const [channels, setChannels] = useState<string[] | null>(null)
+  const [emails, setEmails] = useState<{ subject: string; preview: string }[] | null>(null)
   const v = (k: string, fallback: unknown) => (k in f ? f[k] : fallback == null ? '' : String(fallback))
   const editStore = base?.store_id ?? Number(f.store_id ?? storeId ?? stores[0]?.id)
   const report = useQuery({ queryKey: ['discount-report', editStore], enabled: !!editStore && ev !== null,
@@ -123,10 +124,11 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
       }
       if (tags !== null) body.tags = tags
       if (channels !== null) body.ad_channels = channels
+      if (emails !== null) body.email_variants = emails
       if (isNew) return api.post('/events', { store_id: Number(f.store_id ?? storeId ?? stores[0]?.id), name: f.name ?? '', ...body })
       return api.patch(`/events/${base!.id}`, body)
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['events'] }); setF({}); setTags(null); setChannels(null); setFresh(null); onClose() },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['events'] }); setF({}); setTags(null); setChannels(null); setEmails(null); setFresh(null); onClose() },
   })
   const verify = useMutation({ mutationFn: () => api.post<{ status: string; findings: string[] }>(`/events/${base!.id}/verify`),
     onSuccess: async () => { qc.invalidateQueries({ queryKey: ['events'] }); qc.invalidateQueries({ queryKey: ['live-offers'] }); setFresh(await api.get<Ev>(`/events/${base!.id}`)) } })
@@ -135,7 +137,7 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
   if (ev === null) return null
   const m = results.data?.measured
   return (
-    <Drawer open onClose={() => { setF({}); setTags(null); setChannels(null); setFresh(null); onClose() }} title={<><h2>{isNew ? 'New offer' : base!.name}</h2>
+    <Drawer open onClose={() => { setF({}); setTags(null); setChannels(null); setEmails(null); setFresh(null); onClose() }} title={<><h2>{isNew ? 'New offer' : base!.name}</h2>
       {!isNew && (f.description ?? base!.description) && <p className="drawer-desc">{f.description ?? base!.description}</p>}</>}>
       {base && (
         <div className="row" style={{ marginBottom: 10 }}>
@@ -190,6 +192,7 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
             onChange={() => { const cur = channels ?? base?.ad_channels ?? []; setChannels(cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k]) }} /> {l}</label>))}
         </div>
       </div>
+      <EmailsField value={emails ?? (base?.email_variants?.length ? base.email_variants : emailsFromBanner(base?.banner_message))} onChange={setEmails} />
       <div className="mt"><Field label="Extra details (shown in docs; Notes stay internal)"><textarea rows={2} value={v('extra_details', base?.extra_details)} onChange={set('extra_details')} /></Field></div>
       {base && <BannerEditor ev={base} />}
       <div className="section-title">Recorded results (documented)</div>
@@ -218,7 +221,7 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
         </>
       )}
       <div className="row mt">
-        <button className="primary" onClick={() => save.mutate()} disabled={save.isPending || (!isNew && Object.keys(f).length === 0 && tags === null && channels === null)}>Save</button>
+        <button className="primary" onClick={() => save.mutate()} disabled={save.isPending || (!isNew && Object.keys(f).length === 0 && tags === null && channels === null && emails === null)}>Save</button>
         {base && <button className="danger" onClick={() => confirm(`Delete event "${base.name}"?`) && del.mutate()}>Delete</button>}
       </div>
       {isNew && <div className="notice info mt"><small>Technical status starts as <strong>Not verified</strong>: it is checked against the connected store's synced discounts by the offer's coupon codes.</small></div>}
@@ -505,6 +508,34 @@ function TagStyleEditor({ tag, onClose }: { tag: string; onClose: () => void }) 
         {current && <button type="button" className="small" disabled={save.isPending} onClick={() => save.mutate(true)}>Automatic colour</button>}
       </div>
       <ErrorBox error={save.error} />
+    </div>
+  )
+}
+
+/** The calendar's email brief ("Subject: … | Preheader: … | CTA: …") as a first email. */
+function emailsFromBanner(text: string | null | undefined) {
+  const parts: Record<string, string> = {}
+  for (const p of (text ?? '').split('|')) {
+    const i = p.indexOf(':')
+    if (i > 0) parts[p.slice(0, i).trim().toLowerCase()] = p.slice(i + 1).trim()
+  }
+  return parts.subject ? [{ subject: parts.subject, preview: parts.preheader ?? '' }] : []
+}
+
+/** Emails of an offer for docs: subject and preview text, as many as needed. */
+function EmailsField({ value, onChange }: { value: { subject: string; preview: string }[]; onChange: (v: { subject: string; preview: string }[]) => void }) {
+  const rows = value.length ? value : []
+  const upd = (i: number, k: 'subject' | 'preview', v: string) => onChange(rows.map((r, j) => (j === i ? { ...r, [k]: v } : r)))
+  return (
+    <div className="field mt">Emails (subject and preview text, shown in docs for email offers)
+      {rows.map((r, i) => (
+        <div key={i} className="row" style={{ gap: 6, alignItems: 'center' }}>
+          <input style={{ flex: 1 }} value={r.subject} onChange={(e) => upd(i, 'subject', e.target.value)} placeholder="Subject" />
+          <input style={{ flex: 1 }} value={r.preview} onChange={(e) => upd(i, 'preview', e.target.value)} placeholder="Preview text" />
+          <button type="button" className="ghost small" aria-label="Remove email" onClick={() => onChange(rows.filter((_, j) => j !== i))}>✕</button>
+        </div>
+      ))}
+      <div><button type="button" className="small" onClick={() => onChange([...rows, { subject: '', preview: '' }])}>Add email</button></div>
     </div>
   )
 }

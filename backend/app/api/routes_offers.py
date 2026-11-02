@@ -23,6 +23,11 @@ from app.services.audit import audit
 router = APIRouter(prefix="/api", tags=["offers"])
 AdChannel = Literal["facebook", "email", "google"]
 
+
+class EmailVariant(BaseModel):
+    subject: str = Field(default="", max_length=300)
+    preview: str = Field(default="", max_length=300)
+
 EVENT_STATUSES = "^(in_progress|scheduled|live|paused|completed|cancelled)$"
 
 
@@ -73,6 +78,7 @@ class EventIn(BaseModel):
     forecast_aov: float | None = Field(default=None, ge=0)
     extra_details: str | None = None
     ad_channels: list[AdChannel] = []
+    email_variants: list[EmailVariant] = []
     threshold_amount: float | None = None
     bonus: str | None = None
     eligible_products: list[Any] = []
@@ -118,6 +124,7 @@ class EventPatch(BaseModel):
     forecast_aov: float | None = Field(default=None, ge=0)
     extra_details: str | None = None
     ad_channels: list[AdChannel] | None = None
+    email_variants: list[EmailVariant] | None = None
     threshold_amount: float | None = None
     bonus: str | None = None
     est_incentive_cost: float | None = None
@@ -302,6 +309,8 @@ def update_event(event_id: int, body: EventPatch, db: Session = DB):
     store = db.get(Store, e.store_id)
     changes = body.model_dump(exclude_unset=True)
     before = change_log.snapshot(e)
+    if "email_variants" in changes:
+        changes["email_variants"] = [v for v in changes["email_variants"] or [] if v["subject"].strip() or v["preview"].strip()]
     if "ad_channels" in changes:
         changes["ad_channels"] = list(dict.fromkeys(changes["ad_channels"] or []))
     if "tags" in changes:

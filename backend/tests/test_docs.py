@@ -83,7 +83,7 @@ def test_doc_content_follows_the_plan_live(db, c):
     assert t["threshold"] == "$99+" and t["activation"] == "Manual" and t["codes"] == ["SPOOKLAB", "OWLPASS"]
     assert t["bonus"]["free_gift"].startswith("Free Spooky Stories eBook")  # old single Bonus text until split
     assert lt["display_text"] == "Email only, not shown on the site" and lt["banner"] is False
-    assert lt["email"][0] == ["Subject", "The treats are almost gone 🎃"] and lt["products"] == "Halloween"
+    assert lt["emails"][0]["subject"] == "The treats are almost gone 🎃" and lt["products"] == "Halloween"
     assert [p["name"] for p in d["product_offers"]] == ["Tiny Biker Anti-Tip Light & Sound Motorcycle"]
     assert d["product_offers"][0]["sku"] == "15348751499638"
     focus = {p["name"]: p for p in d["focus"]}
@@ -175,3 +175,37 @@ def test_import_records_changes(db):
     ch = {c.field: (c.old, c.new) for c in db.scalars(select(EventChange))}
     assert ch["end_date"] == ("2026-10-31", "2026-11-01")
     assert ch["offer_text"][0] == "15% off entire order"
+
+
+def test_offer_sentence_from_the_calendar_coupon_cell():
+    """Real MAU Coupon cells (calendar, Nov 2026)."""
+    from app.offers.offer_text import describe
+
+    assert describe("SPOOKLAB (15 %new) | OWLPASS (existing 20%)", 99, "full_site") == (
+        "New customers get 15% off orders over $99 with code SPOOKLAB, shown on the site. "
+        "Email subscribers only get 20% off orders over $99 with code OWLPASS.")
+    assert describe("LASTPOST (15% + FS, $49+) | TREETIME (existing 20% + FS)", 49, "full_site").startswith(
+        "Customers get 15% off orders over $49 plus free shipping with code LASTPOST.")
+    assert "get $25 off orders over $99 with code JANSPARK" in describe(
+        "NEWSPARK (new 15%) | JANSPARK (existing $25 off $99 · B-cell: credit)", 99, "full_site")
+    assert describe("SPOOKLAB (reused, already live)", 99, "email_only") is None  # value unknown: not guessed
+    assert describe("SPOOKLAB (reused, already live)", 99, "email_only",
+                    {"SPOOKLAB": {"value": 15.0, "value_type": "percent"}}) == "Customers get 15% off orders over $99 with code SPOOKLAB."
+
+
+def test_doc_uses_written_description_then_generated_then_offer_text(db, c):
+    _s, tricks, last = _mau(db)
+    tricks.coupon_raw = "SPOOKLAB (15 %new) | OWLPASS (existing 20%)"
+    db.commit()
+    doc = c.post("/api/offer-docs", json={"name": "x", "start_date": "2026-10-25", "end_date": "2026-11-03"}).json()
+    ev = {e["name"]: e for e in c.get(f"/api/public/docs/{doc['token']}").json()["events"]}
+    assert ev["Tricks, Treats & Clever Feats"]["offer"].startswith("New customers get 15% off orders over $99")
+    assert ev["Last Treats Standing"]["offer"] == "15% off entire order (final 72h)"  # no cell, no store data
+    assert ev["Last Treats Standing"]["emails"] == [{"subject": "The treats are almost gone 🎃",
+                                                     "preview": "72 hours left on 15% off — then the cauldron closes"}]
+    c.patch(f"/api/events/{last.id}", json={"email_variants": [{"subject": "A", "preview": "a"}, {"subject": "B", "preview": ""},
+                                                                {"subject": " ", "preview": ""}]})
+    c.patch(f"/api/events/{tricks.id}", json={"offer_description": "Written by hand."})
+    ev = {e["name"]: e for e in c.get(f"/api/public/docs/{doc['token']}").json()["events"]}
+    assert [m["subject"] for m in ev["Last Treats Standing"]["emails"]] == ["A", "B"]  # empty rows dropped
+    assert ev["Tricks, Treats & Clever Feats"]["offer"] == "Written by hand."

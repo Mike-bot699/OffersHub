@@ -512,6 +512,7 @@ def _import_events(db, rows, sheet, stores, report: ImportReport, batch, dry_run
         ev.display = display
         ev.activation = activation
         ev.coupon_codes = coupons
+        ev.coupon_raw = coupon_raw or None
         ev.threshold_amount = thr_amount
         ev.threshold_text = thr_text
         ev.bonus = bonus

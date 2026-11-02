@@ -53,15 +53,6 @@ def to_docx(d: dict, link: str) -> bytes:
     doc.add_paragraph(f"Snapshot of the live doc: {link}")
     if d.get("custom_top"):
         doc.add_paragraph(plain(d["custom_top"]))
-    if d["focus"]:
-        doc.add_heading("Products to focus", level=1)
-        t = doc.add_table(rows=1, cols=4)
-        t.style = "Light List"
-        for i, h in enumerate(["Product", "SKU", "Performance", "Extra tags"]):
-            t.rows[0].cells[i].text = h
-        for p in d["focus"]:
-            c = t.add_row().cells
-            c[0].text, c[1].text, c[2].text, c[3].text = p["name"], p["sku"] or "", p["perf"] or "", ", ".join(p["tags"])
     if d["events"]:
         doc.add_heading("Events", level=1)
         store = None
@@ -73,8 +64,9 @@ def to_docx(d: dict, link: str) -> bytes:
             doc.add_paragraph(" · ".join([e["when"], *[t["name"] for t in e["tags"]]]))
             if e["banner"]:
                 doc.add_paragraph("Banners: see the live doc.")
-            for k, v in e["email"]:
-                _field(doc, k, v)
+            for i, m in enumerate(e["emails"], start=1):
+                _field(doc, f"Email {i}" if len(e["emails"]) > 1 else "Email",
+                       " · ".join(filter(None, [m["subject"], m["preview"] and f"preview: {m['preview']}"])))
             _field(doc, "Offer", e["offer"])
             _field(doc, "Displayed", e["display_text"])
             _field(doc, "Coupon code", " / ".join(e["codes"]))
@@ -92,6 +84,15 @@ def to_docx(d: dict, link: str) -> bytes:
                                                                  f"{f['uses']} code uses" if f["uses"] else None,
                                                                  f"AOV {f['aov']}" if f["aov"] else None])))
             _field(doc, "Extra details", e["extra_details"])
+    if d["focus"]:
+        doc.add_heading("Products to focus", level=1)
+        t = doc.add_table(rows=1, cols=4)
+        t.style = "Light List"
+        for i, h in enumerate(["Product", "SKU", "Performance", "Extra tags"]):
+            t.rows[0].cells[i].text = h
+        for p in d["focus"]:
+            c = t.add_row().cells
+            c[0].text, c[1].text, c[2].text, c[3].text = p["name"], p["sku"] or "", p["perf"] or "", ", ".join(p["tags"])
     if d["product_offers"]:
         doc.add_heading("Product offers", level=1)
         t = doc.add_table(rows=1, cols=3)

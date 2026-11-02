@@ -8,7 +8,7 @@ import { BannerPair } from '../banner'
 type Tag = { name: string; bg?: string; fg?: string }
 type DocEvent = {
   id: number; store_code: string; store_name: string; name: string; tags: Tag[]; when: string
-  display: string | null; display_text: string | null; banner: boolean; email: [string, string][]
+  display: string | null; display_text: string | null; banner: boolean; emails: { subject: string; preview: string }[]
   offer: string | null; codes: string[]; threshold: string | null; activation: string | null
   bonus: { free_shipping: string | null; giveaway_product: string | null; free_gift: string | null } | null
   products: string | null; channels: { key: string; name: string }[]
@@ -68,7 +68,8 @@ function EventCard({ e, token }: { e: DocEvent; token: string }) {
   const b = e.bonus
   return (
     <section className="pd-offer">
-      <div className="pd-ohead"><h3>{e.name}</h3><span className="pd-when">{e.when}</span></div>
+      <div className="pd-when">{e.when}</div>
+      <h3>{e.name}</h3>
       {e.tags.length > 0 && <div className="pd-tags">{e.tags.map((t) => <TagPill key={t.name} t={t} />)}</div>}
       {e.changes && (
         <div className="pd-changes"><b>⚠️ Updated {day(e.changes.date).replace(/ \d{4}$/, '')}:</b>{' '}
@@ -76,7 +77,15 @@ function EventCard({ e, token }: { e: DocEvent; token: string }) {
         </div>
       )}
       {e.banner && banner.data?.content && <BannerPair banner={banner.data} />}
-      {e.email.length > 0 && <div className="pd-email">{e.email.map(([k, v]) => <div key={k}><span className="pd-k2">{k}</span>{v}</div>)}</div>}
+      {e.emails.length > 0 && (
+        <div className="pd-email">{e.emails.map((m, i) => (
+          <div key={i} className="pd-mail">
+            {e.emails.length > 1 && <div className="pd-mailn">Email {i + 1}</div>}
+            {m.subject && <div><span className="pd-k2">Subject</span>{m.subject}</div>}
+            {m.preview && <div><span className="pd-k2">Preview text</span>{m.preview}</div>}
+          </div>))}
+        </div>
+      )}
       <div className="pd-fields">
         {e.offer && <Field label="Offer" full><OfferText text={e.offer} codes={e.codes} /></Field>}
         {e.display_text && <Field label="Displayed">{e.display_text}</Field>}
@@ -101,61 +110,93 @@ function EventCard({ e, token }: { e: DocEvent; token: string }) {
   )
 }
 
+const SECTION_INFO: Record<string, [string, string]> = {
+  events: ['Events', 'The store-wide and collection offers in this period: dates, offer, codes, where they are shown and the creatives.'],
+  focus: ['Products to focus', 'The products to push in banners, emails and ads: best performers of the last 30 days plus the ones tagged for this period.'],
+  products: ['Product offers', 'Offers attached to single products (bundles, add-ons, gifts), shown on their product pages.'],
+  extras: ['Extra activities', 'Always-on extras the customer can add or receive at checkout.'],
+}
+
+function SectionHead({ id }: { id: keyof typeof SECTION_INFO }) {
+  const [title, desc] = SECTION_INFO[id]
+  return <div className="pd-sec" id={`sec-${id}`}><h2>{title}</h2><p>{desc}</p></div>
+}
+
+function Toc({ d }: { d: DocData }) {
+  const go = (id: string) => (ev: React.MouseEvent) => { ev.preventDefault(); document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }
+  const items: [string, string, boolean][] = [['events', 'Events', d.events.length > 0], ['focus', 'Products to focus', d.focus.length > 0],
+    ['products', 'Product offers', d.product_offers.length > 0], ['extras', 'Extra activities', d.extra_activities.length > 0]]
+  return (
+    <nav className="pd-toc" aria-label="Contents">
+      <div className="pd-toc-t">Contents</div>
+      {items.filter(([, , on]) => on).map(([id, label]) => (
+        <div key={id}>
+          <a href={`#sec-${id}`} onClick={go(`sec-${id}`)}>{label}</a>
+          {id === 'events' && <div className="pd-toc-sub">{d.events.map((e) => <a key={e.id} href={`#ev-${e.id}`} onClick={go(`ev-${e.id}`)}>{e.name}</a>)}</div>}
+        </div>
+      ))}
+    </nav>
+  )
+}
+
 export function DocBody({ d, token }: { d: DocData; token: string }) {
   const multi = d.stores.length > 1
   let lastStore = ''
   return (
-    <div className="pd-page">
-      <div className="pd-head">
-        <div className="pd-eyebrow">Offers in plan</div>
-        <h1>{d.name}</h1>
-        <div className="pd-meta">{d.stores.map((s) => s.name).join(', ')} · {day(d.start_date)} to {day(d.end_date)} · this page always shows the latest version</div>
-        {d.tags.length > 0 && <div className="pd-tags">{d.tags.map((t) => <TagPill key={t.name} t={t} />)}</div>}
+    <div className="pd-layout">
+      <Toc d={d} />
+      <div className="pd-page">
+        <div className="pd-head">
+          <div className="pd-eyebrow">Offers in plan</div>
+          <h1>{d.name}</h1>
+          <div className="pd-meta">{d.stores.map((s) => s.name).join(', ')} · {day(d.start_date)} to {day(d.end_date)} · this page always shows the latest version</div>
+          {d.tags.length > 0 && <div className="pd-tags">{d.tags.map((t) => <TagPill key={t.name} t={t} />)}</div>}
+        </div>
+        <Custom html={d.custom_top} />
+        {d.events.length > 0 && <>
+          <SectionHead id="events" />
+          {d.events.map((e) => {
+            const head = e.store_code !== lastStore ? <div className="pd-store">{e.store_code} · {e.store_name}</div> : null
+            lastStore = e.store_code
+            return <div key={e.id} id={`ev-${e.id}`}>{head}<EventCard e={e} token={token} /></div>
+          })}
+        </>}
+        {d.focus.length > 0 && <>
+          <SectionHead id="focus" />
+          {d.focus_rule && <div className="pd-meta">{d.focus_rule} · recalculated each time the doc is opened</div>}
+          <table className="pd-table"><thead><tr>{multi && <th>Store</th>}<th>Product</th><th>SKU</th><th>Performance</th><th>Extra tags</th></tr></thead>
+            <tbody>{d.focus.map((p) => (
+              <tr key={p.id}>
+                {multi && <td>{p.store_code}</td>}
+                <td>{p.url ? <a href={p.url} target="_blank" rel="noopener noreferrer">{p.name}</a> : p.name}</td>
+                <td className="pd-mono">{p.sku}</td>
+                <td>{p.perf && <span className="pd-tag sm" style={{ background: PERF_COLOR[p.perf]?.[0], color: PERF_COLOR[p.perf]?.[1] }}>{p.perf === 'Best Seller' ? '🔥 ' : ''}{p.perf}</span>}</td>
+                <td>{p.tags.map((t) => <span key={t} className="pd-tag sm" style={{ background: '#000', color: '#fff', marginRight: 4 }}>{t}</span>)}</td>
+              </tr>))}
+            </tbody></table>
+        </>}
+        {d.product_offers.length > 0 && <>
+          <SectionHead id="products" />
+          <table className="pd-table"><thead><tr>{multi && <th>Store</th>}<th>Name</th><th>SKU</th><th>Dedicated offer</th></tr></thead>
+            <tbody>{d.product_offers.map((p, i) => (
+              <tr key={i}>{multi && <td>{p.store_code}</td>}
+                <td>{p.url ? <a href={p.url} target="_blank" rel="noopener noreferrer">{p.name}</a> : p.name}</td>
+                <td className="pd-mono">{p.sku ?? '-'}</td><td>{p.offer ?? '-'}</td></tr>))}
+            </tbody></table>
+        </>}
+        {d.extra_activities.length > 0 && <>
+          <SectionHead id="extras" />
+          <table className="pd-table"><thead><tr>{multi && <th>Store</th>}<th>Activity</th><th>What the customer gets</th><th>Price / value</th></tr></thead>
+            <tbody>{d.extra_activities.map((a, i) => (
+              <tr key={i}>{multi && <td>{a.store_code}</td>}<td><b>{a.name}</b></td>
+                <td>{a.description}{a.code && <> · code <b>{a.code}</b></>}</td><td>{a.price ?? '-'}</td></tr>))}
+            </tbody></table>
+        </>}
+        <Custom html={d.custom_bottom} />
+        {!d.events.length && !d.product_offers.length && !d.focus.length && !d.extra_activities.length && (
+          <p className="pd-meta">No offers in this period yet.</p>
+        )}
       </div>
-      <Custom html={d.custom_top} />
-      {d.focus.length > 0 && <>
-        <h2>Products to focus</h2>
-        {d.focus_rule && <div className="pd-meta">{d.focus_rule} · recalculated each time the doc is opened</div>}
-        <table className="pd-table"><thead><tr>{multi && <th>Store</th>}<th>Product</th><th>SKU</th><th>Performance</th><th>Extra tags</th></tr></thead>
-          <tbody>{d.focus.map((p) => (
-            <tr key={p.id}>
-              {multi && <td>{p.store_code}</td>}
-              <td>{p.url ? <a href={p.url} target="_blank" rel="noopener noreferrer">{p.name} <span aria-hidden>↗</span></a> : p.name}</td>
-              <td className="pd-mono">{p.sku}</td>
-              <td>{p.perf && <span className="pd-tag sm" style={{ background: PERF_COLOR[p.perf]?.[0], color: PERF_COLOR[p.perf]?.[1] }}>{p.perf === 'Best Seller' ? '🔥 ' : ''}{p.perf}</span>}</td>
-              <td>{p.tags.map((t) => <span key={t} className="pd-tag sm" style={{ background: '#000', color: '#fff', marginRight: 4 }}>{t}</span>)}</td>
-            </tr>))}
-          </tbody></table>
-      </>}
-      {d.events.length > 0 && <>
-        <h2>Events</h2>
-        {d.events.map((e) => {
-          const head = e.store_code !== lastStore ? <div className="pd-store">{e.store_code} · {e.store_name}</div> : null
-          lastStore = e.store_code
-          return <div key={e.id}>{head}<EventCard e={e} token={token} /></div>
-        })}
-      </>}
-      {d.product_offers.length > 0 && <>
-        <h2>Product offers</h2>
-        <table className="pd-table"><thead><tr>{multi && <th>Store</th>}<th>Name</th><th>SKU</th><th>Dedicated offer</th></tr></thead>
-          <tbody>{d.product_offers.map((p, i) => (
-            <tr key={i}>{multi && <td>{p.store_code}</td>}
-              <td>{p.url ? <a href={p.url} target="_blank" rel="noopener noreferrer">{p.name} <span aria-hidden>↗</span></a> : p.name}</td>
-              <td className="pd-mono">{p.sku ?? '-'}</td><td>{p.offer ?? '-'}</td></tr>))}
-          </tbody></table>
-      </>}
-      {d.extra_activities.length > 0 && <>
-        <h2>Extra activities</h2>
-        <table className="pd-table"><thead><tr>{multi && <th>Store</th>}<th>Activity</th><th>What the customer gets</th><th>Price / value</th></tr></thead>
-          <tbody>{d.extra_activities.map((a, i) => (
-            <tr key={i}>{multi && <td>{a.store_code}</td>}<td><b>{a.name}</b></td>
-              <td>{a.description}{a.code && <> · code <b>{a.code}</b></>}</td><td>{a.price ?? '-'}</td></tr>))}
-          </tbody></table>
-      </>}
-      <Custom html={d.custom_bottom} />
-      {!d.events.length && !d.product_offers.length && !d.focus.length && !d.extra_activities.length && (
-        <p className="pd-meta">No offers in this period yet.</p>
-      )}
     </div>
   )
 }
