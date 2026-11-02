@@ -129,9 +129,10 @@ export function OffersTable({ rows, onOpen, showResults = false, empty }: { rows
                 </td>
                 <td style={{ whiteSpace: 'nowrap' }}><TechStatusBadge ev={e} /></td>
                 {showResults && <>
-                  <td className="num">{num(e.offer_orders)}</td>
-                  <td className="num">{pct(e.offer_order_share)}</td>
-                  <td className="num">{money(e.offer_sales, e.currency)}</td>
+                  <td className="num" style={{ whiteSpace: 'nowrap' }}><ResultCell e={e} field="orders" /></td>
+                  <td className="num">{e.offer_order_share != null ? pct(e.offer_order_share)
+                    : <span className="muted" title="Needs the store's total orders in the period, not available from Eli Z yet">—</span>}</td>
+                  <td className="num" style={{ whiteSpace: 'nowrap' }}><ResultCell e={e} field="sales" /></td>
                 </>}
               </tr>))}
             </tbody>
@@ -236,7 +237,7 @@ export function StatusPanel({ ev, onChanged }: { ev: Ev; onChanged: (e: Ev) => v
   )
 }
 
-const DISPLAY_TEXT: Record<string, string> = { full_site: 'Full-Displayed', email_only: 'Email-Only', hidden: 'Hidden' }
+const DISPLAY_TEXT: Record<string, string> = { full_site: 'Full-Displayed', top_event: 'Top Event', email_only: 'Email-Only', hidden: 'Hidden' }
 
 const LEVELS: [string, string][] = [['store', 'Store (all)'], ['collection', 'Collection'], ['product', 'Product'], ['', 'Not set']]
 
@@ -406,7 +407,7 @@ export function PlanTable({ rows, onOpen, showResults = false, empty, filters }:
             <thead><tr>
               {th('_start', 'Start Date', false)}{th('_end', 'End Date', false)}{th('_dur', 'Duration')}{th('_name', 'Name', false, 'name-cell')}
               {th('_store', 'Store', false)}<th>Displayed</th>{th('_status', 'Status', false)}<th>Technical Status</th>
-              <th>Offer</th><th>Discount Code</th><th>Code results</th>
+              <th>Offer</th><th>Discount Code</th>{!showResults && <th>Code results</th>}
               {showResults && <><th className="num">Offer orders</th><th className="num">Share of orders</th><th className="num">Offer sales</th></>}
               <th className="num">Threshold</th><th>Level</th><th>Type</th><th>Bonus</th><th>Description</th><th>Landing Page</th><th>Articles</th>
             </tr></thead>
@@ -432,11 +433,12 @@ export function PlanTable({ rows, onOpen, showResults = false, empty, filters }:
                 <td className="clip" title={e.offer_text ?? ''}><small>{e.offer_text ?? '—'}</small></td>
                 <td className="mono">{e.coupon_codes.join(', ') || <span className="muted">{e.activation === 'automatic' ? 'Automatic' : '—'}</span>}
                   {e.linked_discounts?.length > 0 && <div><small className="muted" style={{ fontFamily: 'inherit' }}>+ {e.linked_discounts.join(', ')}</small></div>}</td>
-                <td style={{ whiteSpace: 'nowrap' }}><CodeResults e={e} /></td>
+                {!showResults && <td style={{ whiteSpace: 'nowrap' }}><CodeResults e={e} /></td>}
                 {showResults && <>
-                  <td className="num">{num(e.offer_orders)}</td>
-                  <td className="num">{pct(e.offer_order_share)}</td>
-                  <td className="num">{money(e.offer_sales, e.currency)}</td>
+                  <td className="num" style={{ whiteSpace: 'nowrap' }}><ResultCell e={e} field="orders" /></td>
+                  <td className="num">{e.offer_order_share != null ? pct(e.offer_order_share)
+                    : <span className="muted" title="Needs the store's total orders in the period, not available from Eli Z yet">—</span>}</td>
+                  <td className="num" style={{ whiteSpace: 'nowrap' }}><ResultCell e={e} field="sales" /></td>
                 </>}
                 <td className="num">{e.threshold_amount != null ? money(e.threshold_amount, e.currency) : <small className="muted">{e.threshold_text && e.threshold_text !== 'none' ? e.threshold_text : '—'}</small>}</td>
                 <td style={{ minWidth: 120 }}><LevelCell e={e} /></td>
@@ -451,6 +453,31 @@ export function PlanTable({ rows, onOpen, showResults = false, empty, filters }:
         </div>
       )}
     </>
+  )
+}
+
+/** Offer orders or sales: recorded in the workbook when present, otherwise measured from the offer's
+ * codes in the discount report (Shopify export or Eli Z), with the same caveats as Code results. */
+function ResultCell({ e, field }: { e: Ev; field: 'orders' | 'sales' }) {
+  const documented = field === 'orders' ? e.offer_orders : e.offer_sales
+  if (documented != null) {
+    return <span title="Recorded in the workbook">{field === 'orders' ? num(documented) : money(documented, e.currency)}</span>
+  }
+  const r = e.discount_results
+  if (!r) return <span className="muted" title="No coupon code or linked discount on this offer">—</span>
+  if (r.status === 'after_report') return <small className="muted" title={`The discount report ends ${date(r.report_end ?? null)}`}>after report</small>
+  if (r.status === 'no_match') return <small className="muted" title="No discount with this name in the discount report">not in report</small>
+  const period = r.report_period ? `${date(r.report_period[0])} → ${date(r.report_period[1])}` : ''
+  return (
+    <div title={`Measured from the offer's codes — discount report ${period}${r.by_day ? ', offer dates only' : ', whole report period'}`}>
+      {field === 'orders' ? <strong>{num(r.orders ?? 0)}</strong> : money(r.net_sales ?? 0, e.currency)}
+      {field === 'orders' && <>
+        {!!r.shared_with && <div><span className="badge warning" title="This code is also used by other offers: without daily data its totals cannot be split between them">shared ×{r.shared_with + 1}</span></div>}
+        {r.late && r.late.orders > 0 && <div><span className="badge warning" title="Orders with the code after the offer ended">{num(r.late.orders)} late</span></div>}
+        {!r.by_day && !r.shared_with && <div><small className="muted">whole report period</small></div>}
+      </>}
+      {field === 'sales' && <div><small className="muted">net · {money(r.discounts ?? 0, e.currency)} disc.</small></div>}
+    </div>
   )
 }
 

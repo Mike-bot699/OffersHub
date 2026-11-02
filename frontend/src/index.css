@@ -282,3 +282,4 @@ ul.tight li { margin: 2px 0; }
 .tag-style-editor { border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin-bottom: 8px; background: var(--surface); box-shadow: 0 4px 14px rgba(0,0,0,.08); }
 .tag-swatch { width: 30px; height: 24px; padding: 0; border-radius: 5px; border: 1px solid var(--border); font-size: 11px; font-weight: 700; cursor: pointer; }
 .drawer-desc { margin: 4px 0 0; color: var(--text-2); font-size: 13px; line-height: 1.45; white-space: pre-line; }
+.d-top { background: #b7791f; }

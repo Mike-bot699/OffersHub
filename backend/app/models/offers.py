@@ -63,7 +63,7 @@ class PromoEvent(TimestampMixin, Base):
     objective: Mapped[str | None] = mapped_column(String(64))
     target_audience: Mapped[str | None] = mapped_column(String(64))
     channels: Mapped[list[Any]] = mapped_column(default=list)  # site | email | sms | paid_social
-    display: Mapped[str | None] = mapped_column(String(32))  # full_site | email_only | hidden
+    display: Mapped[str | None] = mapped_column(String(32))  # full_site | top_event | email_only | hidden
     activation: Mapped[str | None] = mapped_column(String(16))  # manual_code | automatic
     coupon_codes: Mapped[list[Any]] = mapped_column(default=list)
     # Automatic discounts (no code) linked by hand to this offer, by their name in the discount report.

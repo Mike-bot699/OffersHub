@@ -238,3 +238,29 @@ def test_reimport_matches_changed_events_and_keeps_known_status(db):
     assert evs["Black Friday for Big Ideas"].coupon_codes == ["BF2026", "FOXCLUB"]
     assert evs["Tricks, Treats & Clever Feats"].status == "live"  # 'Off' not recognised: Live kept
     assert evs["Clever Shoppers Go Early"].status == "scheduled"   # dropped from the file: left as is
+
+
+def test_displayed_top_event_and_unknown_values(db):
+    """Real calendar values: '👑 Top Event' is kept as its own value; an unknown one is reported, not dropped silently."""
+    import io
+
+    import openpyxl
+    from sqlalchemy import select
+
+    from app.models import PromoEvent
+    from app.services.offers_import import import_offers_workbook
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Events"
+    ws.append(["Start Date", "End Date", "Event Name", "Store", "🏷️ Offer", "🖥️ Displayed"])
+    d = __import__("datetime").datetime
+    ws.append([d(2026, 10, 25), d(2026, 11, 1), "🎃 Tricks, Treats & Clever Feats", "🧸 MAU", "15% off", "👑 Top Event"])
+    ws.append([d(2026, 11, 4), d(2026, 11, 10), "⚫ Curious Club: First Dibs", "🧸 MAU", "20% off", "🛸 Popup only"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    rep = import_offers_workbook(db, buf.getvalue(), "MAU.xlsx", dry_run=False, today=__import__("datetime").date(2026, 10, 30))
+    evs = {e.name: e for e in db.scalars(select(PromoEvent))}
+    assert evs["Tricks, Treats & Clever Feats"].display == "top_event"
+    assert evs["Curious Club: First Dibs"].display is None
+    assert any("Displayed 'Popup only' not recognised" in i["issue"] for i in rep.issues)

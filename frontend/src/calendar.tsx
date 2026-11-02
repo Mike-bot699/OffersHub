@@ -7,7 +7,7 @@ import { OfferStatusBadge, TagChip, type Ev } from './offerStatus'
 
 const DAY = 86_400_000
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-const DISPLAY: Record<string, [string, string]> = { full_site: ['d-full', 'Full-Displayed'], email_only: ['d-email', 'Email-Only'], hidden: ['d-hidden', 'Hidden'] }
+const DISPLAY: Record<string, [string, string]> = { top_event: ['d-top', 'Top Event'], full_site: ['d-full', 'Full-Displayed'], email_only: ['d-email', 'Email-Only'], hidden: ['d-hidden', 'Hidden'] }
 const STATUS_TEXT: Record<string, string> = { in_progress: 'In Progress', scheduled: 'Scheduled', live: 'Live', paused: 'Paused', completed: 'Completed', cancelled: 'Cancelled' }
 const COLOR_KEY = 'offershub.calendar.colorBy'
 

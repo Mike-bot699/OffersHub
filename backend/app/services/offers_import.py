@@ -72,7 +72,7 @@ def parse_codes(raw: str) -> list[str]:
     return out
 
 DISPLAY_MAP = {"full displayed": "full_site", "fully displayed": "full_site", "email only": "email_only",
-               "content email": "email_only"}
+               "content email": "email_only", "top event": "top_event"}
 
 
 def _header_map(headers: list[Any]) -> dict[int, str]:
@@ -421,6 +421,8 @@ def _import_events(db, rows, sheet, stores, report: ImportReport, batch, dry_run
         activation = "automatic" if activation_raw.startswith("auto") else "manual_code" if activation_raw else None
         display_raw = norm_key(g("display"))
         display = next((v for k, v in DISPLAY_MAP.items() if k in display_raw), None) if display_raw else None
+        if display_raw and display is None:
+            issues.append(f"Displayed '{strip_decoration(str(g('display')))}' not recognised: left empty")
         channels = ["email"] if display == "email_only" else (["site", "email"] if display == "full_site" else [])
 
         if store.id not in titles_cache:
