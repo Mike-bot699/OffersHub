@@ -346,3 +346,4 @@ ul.tight li { margin: 2px 0; }
   .pd-page { box-shadow: none; padding: 0; max-width: none; }
   .pd-bwrap { box-shadow: none; }
 }
+.pd-est { font-size: 11px; font-weight: 700; color: #7a5a00; background: #fff8e1; border: 1px solid #f0d18a; border-radius: 4px; padding: 0 6px; align-self: center; }

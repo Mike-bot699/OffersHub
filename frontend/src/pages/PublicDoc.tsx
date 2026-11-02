@@ -12,7 +12,7 @@ type DocEvent = {
   offer: string | null; codes: string[]; threshold: string | null; activation: string | null
   bonus: { free_shipping: string | null; giveaway_product: string | null; free_gift: string | null } | null
   products: string | null; channels: { key: string; name: string }[]
-  forecast: { orders: number | null; uses: number | null; aov: string | null } | null
+  forecast: { orders: number | null; uses: number | null; aov: string | null; estimate: boolean; basis?: number } | null
   extra_details: string | null
   changes: { date: string; items: { field: string; text: string }[] } | null
 }
@@ -100,6 +100,7 @@ function EventCard({ e, token }: { e: DocEvent; token: string }) {
       </div>
       {e.forecast && (
         <div className="pd-box"><b>Forecast</b>
+          {e.forecast.estimate && <span className="pd-est" title="Median orders per day of the store's past offers shown the same way (site or email only), times this offer's days; AOV is their median. Replaced by a forecast typed on the offer.">estimate · {e.forecast.basis} past offers</span>}
           {e.forecast.orders != null && <span><em>{e.forecast.orders}</em> orders</span>}
           {e.forecast.uses != null && <span><em>{e.forecast.uses}</em> code uses</span>}
           {e.forecast.aov && <span>AOV <em>{e.forecast.aov}</em></span>}

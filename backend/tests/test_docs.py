@@ -98,7 +98,7 @@ def test_doc_content_follows_the_plan_live(db, c):
     t = c.get(f"/api/public/docs/{doc['token']}").json()["events"][0]
     assert t["offer"].startswith("New customers get 15% off")
     assert [x["name"] for x in t["channels"]] == ["Facebook", "Email"]
-    assert t["forecast"] == {"orders": 40, "uses": None, "aov": "$120"}
+    assert t["forecast"] == {"orders": 40, "uses": None, "aov": "$120", "estimate": False}
     assert [c["text"] for c in t["changes"]["items"]] == ["code SPOOKLAB, OWLPASS → SPOOKLAB"]  # first fills are not changes
     # sections can be switched off
     c.put(f"/api/offer-docs/{doc['id']}", json={**{k: doc[k] for k in ("name", "tags", "store_ids", "start_date", "end_date", "focus")},
@@ -213,3 +213,28 @@ def test_doc_uses_written_description_then_generated_then_offer_text(db, c):
     ev = {e["name"]: e for e in c.get(f"/api/public/docs/{doc['token']}").json()["events"]}
     assert [m["subject"] for m in ev["Last Treats Standing"]["emails"]] == ["A", "B"]  # empty rows dropped
     assert ev["Tricks, Treats & Clever Feats"]["offer"] == "Written by hand."
+
+
+def test_forecast_estimate_from_past_site_offers(db, c):
+    """Real MAU 2026 codes (Shopify export dates, 'Sales by discount code' orders and net sales)."""
+    from app.offers.discount_report import import_discount_report
+
+    s, tricks, last = _mau(db)
+    past = [("Bright spring", "BRIGHT20", date(2026, 2, 9), date(2026, 3, 31)),      # 51 days, 211 orders
+            ("Easter", "EASTER10", date(2026, 3, 26), date(2026, 4, 30)),           # 36 days, 79 orders
+            ("Mother's Day", "MUMDAY15", date(2026, 4, 10), date(2026, 6, 15)),     # 67 days, 1 order
+            ("Daddy", "DADDY15", date(2026, 6, 16), date(2026, 9, 30))]             # 107 days, 43 orders
+    for n, code, a, b in past:
+        db.add(PromoEvent(store_id=s.id, name=n, coupon_codes=[code], status="completed", start_date=a, end_date=b,
+                          display="full_site", source="manual"))
+    lines = [("BRIGHT20", 211, 22950.52), ("EASTER10", 79, 6715.0), ("MUMDAY15", 1, 85.0), ("DADDY15", 43, 4300.0)]
+    jsonl = "\n".join(f'{{"discount_name":"{n}","discount_method":"discount_code","applied_discounts":-1,"discounted_orders":{o},'
+                      f'"gross_sales":{v * 1.1},"net_sales":{v}}}' for n, o, v in lines).encode()
+    import_discount_report(db, s, jsonl, "Sales_by_discount_codes_-_2026-01-01_-_2026-10-30.jsonl", start=None, end=None, dry_run=False)
+    db.commit()
+    doc = c.post("/api/offer-docs", json={"name": "x", "start_date": "2026-10-25", "end_date": "2026-11-03"}).json()
+    ev = {e["name"]: e for e in c.get(f"/api/public/docs/{doc['token']}").json()["events"]}
+    f = ev["Tricks, Treats & Clever Feats"]["forecast"]
+    # orders/day 4.14, 2.19, 0.01, 0.40 → median 1.30; × 8 days = 10; AOV median of 108.77, 85.0, 85.0, 100.0 → 92.5
+    assert f == {"orders": 10, "uses": None, "aov": "$92.50", "estimate": True, "basis": 4}
+    assert ev["Last Treats Standing"]["forecast"] is None  # email-only: no comparable past email offers

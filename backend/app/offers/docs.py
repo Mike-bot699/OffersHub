@@ -19,6 +19,8 @@ from sqlalchemy.orm import Session
 
 from app.models import Coupon, EventChange, ExtraActivity, OfferDoc, Product, PromoEvent, Store, TagStyle
 from app.offers.changes import TRACKED
+from app.offers.forecast import baselines as forecast_baselines
+from app.offers.forecast import estimate as forecast_estimate
 from app.offers.offer_text import describe as describe_offer
 
 DEFAULT_STATUSES = ["live", "scheduled", "in_progress"]
@@ -157,6 +159,14 @@ def assemble(db: Session, doc: OfferDoc, today: date) -> dict[str, Any]:
                                                       EventChange.at >= since).order_by(EventChange.at)):
             changes.setdefault(c.event_id, []).append(c)
 
+    base = forecast_baselines(db, list(by_id), today) if sec["forecast"] and events else {}
+
+    def _forecast(e: PromoEvent) -> dict | None:
+        if e.forecast_orders or e.forecast_uses or e.forecast_aov:
+            return {"orders": e.forecast_orders, "uses": e.forecast_uses, "aov": _money(e.forecast_aov), "estimate": False}
+        est = forecast_estimate(base, e)
+        return {"orders": est["orders"], "uses": None, "aov": _money(est["aov"]), "estimate": True, "basis": est["basis"]} if est else None
+
     def event_out(e: PromoEvent) -> dict:
         s = by_id[e.store_id]
         ch = changes.get(e.id, [])
@@ -183,8 +193,7 @@ def assemble(db: Session, doc: OfferDoc, today: date) -> dict[str, Any]:
             "products": "Storewide" if e.level == "store" or (e.level == "collection" and not targets)
             else _clean(", ".join(targets)),
             "channels": [{"key": c, "name": CHANNELS[c]} for c in e.ad_channels or [] if c in CHANNELS],
-            "forecast": {"orders": e.forecast_orders, "uses": e.forecast_uses, "aov": _money(e.forecast_aov)}
-            if sec["forecast"] and (e.forecast_orders or e.forecast_uses or e.forecast_aov) else None,
+            "forecast": _forecast(e) if sec["forecast"] else None,
             "extra_details": _clean(e.extra_details) if sec["extra_details"] else None,
             "changes": {"date": ch[-1].at.date().isoformat(), "items": readable} if readable else None,
         }

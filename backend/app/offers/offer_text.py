@@ -30,7 +30,7 @@ def describe(coupon_raw: str | None, threshold: float | None, display: str | Non
     # A single code and a single value in the Offer text ("20% off $99+") belong together.
     single = None
     if len(parse_codes(coupon_raw)) == 1 and offer_text:
-        vals = re.findall(r"(\d+(?:\.\d+)?)\s*%|\$\s*(\d+(?:\.\d+)?)\s*off", offer_text, re.I)
+        vals = re.findall(r"(\d+(?:\.\d+)?)\s*%|\$\s*(\d+(?:\.\d+)?)\s*off", offer_text, re.IGNORECASE)
         if len(vals) == 1:
             single = f"{float(vals[0][0]):g}% off" if vals[0][0] else f"${float(vals[0][1]):g} off"
     sentences = []
