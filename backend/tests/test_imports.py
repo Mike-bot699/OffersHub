@@ -291,3 +291,81 @@ def test_consistency_warnings_on_real_calendar_rows():
                  "Twenty-four days of one small idea a day", "") == []
     assert check(date(2026, 9, 21), date(2026, 10, 4), "Extra 20% OFF storewide on orders $99+ + Free Gift Box on $149+",
                  "LLT20", 99, "", "") == []
+
+
+def test_advertising_column(db):
+    """Calendar 'Advertising' column: Meta is stored as Facebook; a calendar without the column changes nothing."""
+    import io
+
+    import openpyxl
+    from sqlalchemy import select
+
+    from app.models import PromoEvent
+    from app.services.offers_import import import_offers_workbook, parse_ad_channels
+
+    assert parse_ad_channels("Email, Meta, Google") == ["facebook", "email", "google"]
+    assert parse_ad_channels("Email") == ["email"]
+
+    def book(with_ads):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Events"
+        ws.append(["Start Date", "End Date", "Event Name", "Store", "🏷️ Offer", *(["Advertising"] if with_ads else [])])
+        d = __import__("datetime").datetime
+        ws.append([d(2026, 11, 23), d(2026, 11, 29), "⚫ Black Friday for Big Ideas", "🧸 MAU", "20% off $99+",
+                   *(["Email, Meta, Google"] if with_ads else [])])
+        buf = io.BytesIO()
+        wb.save(buf)
+        return buf.getvalue()
+
+    today = __import__("datetime").date(2026, 11, 3)
+    import_offers_workbook(db, book(True), "a.xlsx", dry_run=False, today=today)
+    db.commit()
+    ev = db.scalar(select(PromoEvent))
+    assert ev.ad_channels == ["facebook", "email", "google"]
+    import_offers_workbook(db, book(False), "b.xlsx", dry_run=False, today=today)
+    db.commit()
+    db.refresh(ev)
+    assert ev.ad_channels == ["facebook", "email", "google"]  # no column: left as it was
+
+
+def test_partial_file_updates_only_its_columns(db):
+    """Real case: adding Advertising to MAU events must not undo edits made in OffersHub (bonus threshold, codes)."""
+    import io
+
+    import openpyxl
+    from sqlalchemy import select
+
+    from app.models import PromoEvent
+    from app.services.offers_import import import_offers_workbook
+
+    d = __import__("datetime").datetime
+    today = __import__("datetime").date(2026, 11, 3)
+
+    def book(head, row):
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Events"
+        ws.append(head)
+        ws.append(row)
+        buf = io.BytesIO()
+        wb.save(buf)
+        return buf.getvalue()
+
+    full = book(["Start Date", "End Date", "Event Name", "Store", "🏷️ Offer", "🎟️ Coupon", "🚫 Threshold", "Bonus"],
+                [d(2026, 11, 23), d(2026, 11, 29), "⚫ Black Friday for Big Ideas", "🧸 MAU", "20% off $99+",
+                 "BF2026 (new 20%) | FOXCLUB (existing 25%)", "$99.00", "Free gift in every box over $120."])
+    import_offers_workbook(db, full, "full.xlsx", dry_run=False, create_missing_stores=True, today=today)
+    db.commit()
+    ev = db.scalar(select(PromoEvent))
+    ev.bonus = "Free gift in every box over $150."  # edited in OffersHub after the import
+    db.commit()
+    ads = book(["Start Date", "End Date", "Event Name", "Store", "Advertising"],
+               [d(2026, 11, 23), d(2026, 11, 29), "⚫ Black Friday for Big Ideas", "🧸 MAU", "Email, Meta, Google"])
+    rep = import_offers_workbook(db, ads, "ads.xlsx", dry_run=False, today=today)
+    db.commit()
+    db.refresh(ev)
+    assert (rep.events_created, rep.events_updated) == (0, 1)
+    assert ev.ad_channels == ["facebook", "email", "google"]
+    assert ev.coupon_codes == ["BF2026", "FOXCLUB"] and ev.offer_text == "20% off $99+" and ev.threshold_amount == 99
+    assert ev.bonus == "Free gift in every box over $150."

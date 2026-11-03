@@ -53,13 +53,24 @@ EVENT_COLUMNS = {
     "event description": "description", "description": "description", "days": "duration",
     "collection": "collection", "products": "collection", "targets": "collection", "level": "level", "article": "articles", "banners message": "banner_message",
     "banner message": "banner_message", "landing page": "landing_page", "activation": "activation",
-    "status": "calendar_status",
+    "status": "calendar_status", "advertising": "advertising", "advertising channels": "advertising", "ads": "advertising",
 }
 # The calendar's Status column mixes email states (Sent, Off) with offer states. Only the offer
 # states are used; anything else leaves the status to other evidence.
 CALENDAR_STATUS = {"live": "live", "paused": "paused", "in progress": "in_progress", "cancelled": "cancelled", "canceled": "cancelled",
                    "scheduled": "scheduled", "completed": "completed", "ended": "completed"}
 CODE_RE = re.compile(r"^[A-Z0-9][A-Z0-9_-]{2,}$")
+
+
+AD_CHANNELS = [("facebook", re.compile(r"\b(meta|facebook|fb|instagram|ig)\b", re.IGNORECASE)),
+               ("email", re.compile(r"\b(e-?mail|klaviyo|newsletter)\b", re.IGNORECASE)),
+               ("google", re.compile(r"\bgoogle\b", re.IGNORECASE))]
+
+
+def parse_ad_channels(raw) -> list[str]:
+    """'Meta, Google, Email' → ['facebook', 'email', 'google'] (Meta is shown as Facebook)."""
+    text = str(raw or "")
+    return [key for key, rx in AD_CHANNELS if rx.search(text)]
 
 
 def parse_codes(raw: str) -> list[str]:
@@ -301,7 +312,9 @@ def _import_events(db, rows, sheet, stores, report: ImportReport, batch, dry_run
         return
     hmap = _header_map(rows[0])
     col = {name: i for i, name in hmap.items()}
-    missing = [c for c in ("name", "store", "start", "end", "offer") if c not in col]
+    # An event is found by name, store and dates; any other column the file lacks leaves that
+    # field of existing events as it is (a file can update a few columns only).
+    missing = [c for c in ("name", "store", "start", "end") if c not in col]
     if missing:
         raise ValidationError(f"Events sheet is missing expected columns: {', '.join(missing)}")
     offers_cache: dict[str, Offer] = {}
@@ -491,16 +504,20 @@ def _import_events(db, rows, sheet, stores, report: ImportReport, batch, dry_run
             offers_cache[okey] = offer
 
         before = change_log.snapshot(ev) if ev is not None else None
+        is_new = ev is None
+        has = lambda k: is_new or col.get(k) is not None
         if ev is None:
             ev = PromoEvent(store_id=store.id, natural_key=nkey, name=name)
             db.add(ev)
         ev.natural_key = nkey
         ev.name = name
-        ev.offer_id = offer.id if offer else None
-        ev.offer_text = offer_text
+        if has("offer"):
+            ev.offer_id = offer.id if offer else None
+            ev.offer_text = offer_text
         type_raw = norm_key(g("type")).replace(" ", "_")
         explicit_type = type_raw if type_raw in {t.value for t in OfferType} else None
-        ev.offer_type = explicit_type or (cls["offer_type"] if offer_text else None)
+        if has("offer") or has("type"):
+            ev.offer_type = explicit_type or (cls["offer_type"] if offer_text else None)
         ev.start_date, ev.end_date = start, end
         # Never overwrite a status a person or the store has set, and never erase a known status
         # because the workbook has no usable one for the row.
@@ -509,16 +526,21 @@ def _import_events(db, rows, sheet, stores, report: ImportReport, batch, dry_run
                 ev.status = None
                 db.flush()
             set_status(db, ev, status, source="import", actor="workbook import", note=status_note)
-        ev.channels = channels
-        ev.display = display
-        ev.activation = activation
-        ev.coupon_codes = coupons
-        ev.coupon_raw = coupon_raw or None
-        if not ev.compare_codes:  # last year's codes for the forecast, unless set by hand
+        if has("display"):
+            ev.channels = channels
+            ev.display = display
+        if has("activation"):
+            ev.activation = activation
+        if has("coupon"):
+            ev.coupon_codes = coupons
+            ev.coupon_raw = coupon_raw or None
+        if not ev.compare_codes and has("notes"):  # last year's codes for the forecast, unless set by hand
             ev.compare_codes = codes_from_notes(notes, start.year if start else year)
-        ev.threshold_amount = thr_amount
-        ev.threshold_text = thr_text
-        ev.bonus = bonus
+        if has("threshold"):
+            ev.threshold_amount = thr_amount
+            ev.threshold_text = thr_text
+        if has("bonus"):
+            ev.bonus = bonus
         if col.get("description") is not None:
             ev.description = strip_decoration(str(g("description") or "")) or None
         if col.get("collection") is not None or col.get("level") is not None:
@@ -527,14 +549,18 @@ def _import_events(db, rows, sheet, stores, report: ImportReport, batch, dry_run
             ev.landing_page = landing
         if col.get("articles") is not None:
             ev.articles = strip_decoration(str(g("articles") or "")) or None
+        if col.get("advertising") is not None:
+            ev.ad_channels = parse_ad_channels(g("advertising"))
         if col.get("banner_message") is not None:
             ev.banner_message = str(g("banner_message") or "").strip() or None
-        ev.offer_orders = int(offer_orders) if offer_orders is not None else None
-        ev.total_orders = int(total_orders) if total_orders is not None else None
-        ev.offer_sales = sales
-        ev.emails_sent = int(emails) if emails is not None else None
-        ev.results_source = DataSource.SPREADSHEET_IMPORT
-        ev.notes = notes
+        if any(has(k) for k in ("offer_orders", "total_orders", "sales", "emails_sent")):
+            ev.offer_orders = int(offer_orders) if offer_orders is not None else None
+            ev.total_orders = int(total_orders) if total_orders is not None else None
+            ev.offer_sales = sales
+            ev.emails_sent = int(emails) if emails is not None else None
+            ev.results_source = DataSource.SPREADSHEET_IMPORT
+        if has("notes"):
+            ev.notes = notes
         ev.data_issues = issues
         ev.source = DataSource.SPREADSHEET_IMPORT
         ev.source_ref = f"{sheet}!row {rn}"
