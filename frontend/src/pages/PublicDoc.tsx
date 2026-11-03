@@ -40,7 +40,14 @@ function Custom({ html }: { html: string | null }) {
   if (!html?.trim()) return null
   // Pasted text or HTML, cleaned: formatting, links and images stay; scripts and handlers are removed.
   const clean = DOMPurify.sanitize(/<[a-z][\s\S]*>/i.test(html) ? html : html.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!).replace(/\n/g, '<br>'))
-  return <div className="pd-custom" dangerouslySetInnerHTML={{ __html: clean }} />
+  // A link alone on its line (a source, a sheet) becomes a link card; links inside a sentence stay links.
+  const doc = new DOMParser().parseFromString(clean, 'text/html')
+  doc.querySelectorAll('a').forEach((a) => {
+    if (a.parentElement && a.parentElement.textContent?.trim() === a.textContent?.trim()) a.classList.add('pd-linkcard')
+    a.setAttribute('target', '_blank')
+    a.setAttribute('rel', 'noopener noreferrer')
+  })
+  return <div className="pd-custom" dangerouslySetInnerHTML={{ __html: doc.body.innerHTML }} />
 }
 
 /** The offer line with its codes in bold. */
