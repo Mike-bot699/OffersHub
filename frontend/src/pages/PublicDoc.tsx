@@ -36,12 +36,20 @@ function TagPill({ t, small }: { t: Tag; small?: boolean }) {
   return <span className={`pd-tag ${small ? 'sm' : ''}`} style={t.bg ? { background: t.bg, color: t.fg } : undefined}>{t.name}</span>
 }
 
-function Custom({ html }: { html: string | null }) {
+/** Headings (h1/h2) of a custom text, with the ids Custom gives them, for the contents index. */
+function customHeadings(html: string | null, where: string): { id: string; text: string }[] {
+  if (!html?.trim() || !/<h[12][\s>]/i.test(html)) return []
+  const doc = new DOMParser().parseFromString(DOMPurify.sanitize(html), 'text/html')
+  return [...doc.querySelectorAll('h1, h2')].map((h, i) => ({ id: `custom-${where}-${i}`, text: h.textContent?.trim() ?? '' })).filter((h) => h.text)
+}
+
+function Custom({ html, where }: { html: string | null; where: string }) {
   if (!html?.trim()) return null
   // Pasted text or HTML, cleaned: formatting, links and images stay; scripts and handlers are removed.
   const clean = DOMPurify.sanitize(/<[a-z][\s\S]*>/i.test(html) ? html : html.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!).replace(/\n/g, '<br>'))
   // A link alone on its line (a source, a sheet) becomes a link card; links inside a sentence stay links.
   const doc = new DOMParser().parseFromString(clean, 'text/html')
+  doc.querySelectorAll('h1, h2').forEach((h, i) => { h.id = `custom-${where}-${i}` })  // targets of the contents index
   doc.querySelectorAll('a').forEach((a) => {
     if (a.parentElement && a.parentElement.textContent?.trim() === a.textContent?.trim()) a.classList.add('pd-linkcard')
     a.setAttribute('target', '_blank')
@@ -140,12 +148,14 @@ function Toc({ d }: { d: DocData }) {
   return (
     <nav className="pd-toc" aria-label="Contents">
       <div className="pd-toc-t">Contents</div>
+      {customHeadings(d.custom_top, 'top').map((h) => <div key={h.id}><a href={`#${h.id}`} onClick={go(h.id)}>{h.text}</a></div>)}
       {items.filter(([, , on]) => on).map(([id, label]) => (
         <div key={id}>
           <a href={`#sec-${id}`} onClick={go(`sec-${id}`)}>{label}</a>
           {id === 'events' && <div className="pd-toc-sub">{d.events.map((e) => <a key={e.id} href={`#ev-${e.id}`} onClick={go(`ev-${e.id}`)}><span className="pd-toc-d">{tocDate(e.start_date)}</span><span>{e.name}</span></a>)}</div>}
         </div>
       ))}
+      {customHeadings(d.custom_bottom, 'bottom').map((h) => <div key={h.id}><a href={`#${h.id}`} onClick={go(h.id)}>{h.text}</a></div>)}
     </nav>
   )
 }
@@ -163,7 +173,7 @@ export function DocBody({ d, token }: { d: DocData; token: string }) {
           <div className="pd-meta">{d.stores.map((s) => s.name).join(', ')} · {day(d.start_date)} to {day(d.end_date)} · this page always shows the latest version</div>
           {d.tags.length > 0 && <div className="pd-tags">{d.tags.map((t) => <TagPill key={t.name} t={t} />)}</div>}
         </div>
-        <Custom html={d.custom_top} />
+        <Custom html={d.custom_top} where="top" />
         {d.events.length > 0 && <>
           <SectionHead id="events" />
           {d.events.map((e) => {
@@ -203,7 +213,7 @@ export function DocBody({ d, token }: { d: DocData; token: string }) {
                 <td data-label="What the customer gets">{a.description}{a.code && <> · code <b>{a.code}</b></>}</td><td data-label="Price / value">{a.price ?? '-'}</td></tr>))}
             </tbody></table>
         </>}
-        <Custom html={d.custom_bottom} />
+        <Custom html={d.custom_bottom} where="bottom" />
         {!d.events.length && !d.product_offers.length && !d.focus.length && !d.extra_activities.length && (
           <p className="pd-meta">No offers in this period yet.</p>
         )}
