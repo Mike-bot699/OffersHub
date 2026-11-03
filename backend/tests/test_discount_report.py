@@ -140,3 +140,27 @@ def test_placements_and_offer_linking(db, store):
     assert lines["SPOOKLAB"]["offers"] == ["Halloween"] and lines[auto]["offers"] == ["Halloween"]
     r = c.post(f"/api/stores/{store.id}/discount-placements/link", json={"code": "SPOOKLAB", "event_id": ev["id"], "unlink": True}).json()
     assert r["offers"] == []
+
+
+def test_daily_report_follows_the_selected_period(db, store):
+    """Overview with daily data shows the selected days only; a report without days stays whole and says so."""
+    from datetime import date
+
+    from app.models import DiscountReport, DiscountReportRow
+    from app.offers.overview import store_overview
+
+    rep = DiscountReport(store_id=store.id, period_start=date(2026, 10, 1), period_end=date(2026, 10, 31), source="elizeta",
+                         by_day=True, created_at=__import__("datetime").datetime(2026, 11, 1))
+    db.add(rep)
+    db.flush()
+    for d, o in ((date(2026, 10, 5), 4), (date(2026, 10, 25), 6), (date(2026, 10, 28), 5)):  # SPOOKLAB-like days
+        db.add(DiscountReportRow(report_id=rep.id, store_id=store.id, day=d, name="SPOOKLAB", method="discount_code",
+                                 orders=o, discounts=10.0 * o, gross_sales=100.0 * o, net_sales=90.0 * o))
+    db.commit()
+    dr = store_overview(db, store, date(2026, 10, 20), date(2026, 10, 31))["discount_report"]
+    assert dr["report"]["in_period"] and dr["totals"]["all"]["orders"] == 11
+    assert (dr["report"]["shown_start"], dr["report"]["shown_end"]) == ("2026-10-20", "2026-10-31")
+    rep.by_day = False
+    db.commit()
+    dr = store_overview(db, store, date(2026, 10, 20), date(2026, 10, 31))["discount_report"]
+    assert not dr["report"]["in_period"] and dr["totals"]["all"]["orders"] == 15

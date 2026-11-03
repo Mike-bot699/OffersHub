@@ -40,7 +40,7 @@ def store_overview(db: Session, store: Store, start: date, end: date) -> dict:
     from app.offers.discount_report import latest_report, summarize
 
     rep = latest_report(db, store, start, end)
-    out["discount_report"] = summarize(db, rep, top=10) if rep else None
+    out["discount_report"] = summarize(db, rep, top=10, start=start, end=end) if rep else None
     orders = load_dataset(db, store, start, end).orders
     if not orders:
         provider = db.scalar(select(Integration.provider).where(Integration.store_id == store.id)

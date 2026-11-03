@@ -202,8 +202,14 @@ def latest_report(db: Session, store: Store, start: date | None = None, end: dat
     return db.scalar(q.order_by(DiscountReport.period_end.desc(), DiscountReport.created_at.desc()).limit(1))
 
 
-def summarize(db: Session, report: DiscountReport, *, top: int | None = None) -> dict:
+def summarize(db: Session, report: DiscountReport, *, top: int | None = None, start: date | None = None,
+              end: date | None = None) -> dict:
+    """With a daily report and a period, only the days in the period count; a report without days
+    can only be summarised whole (the output says which)."""
     rows = db.scalars(select(DiscountReportRow).where(DiscountReportRow.report_id == report.id)).all()
+    in_period = bool(report.by_day and start and end)
+    if in_period:
+        rows = [r for r in rows if r.day and start <= r.day <= end]
     by_name: dict[str, dict] = defaultdict(lambda: {"orders": 0, "discounts": 0.0, "gross_sales": 0.0, "net_sales": 0.0,
                                                     "method": None, "discount_class": None, "last_day": None})
     for r in rows:
@@ -269,6 +275,9 @@ def summarize(db: Session, report: DiscountReport, *, top: int | None = None) ->
 
     return {
         "report": {"id": report.id, "period_start": report.period_start.isoformat(), "period_end": report.period_end.isoformat(),
+                   "in_period": in_period,
+                   "shown_start": max(start, report.period_start).isoformat() if in_period else report.period_start.isoformat(),
+                   "shown_end": min(end, report.period_end).isoformat() if in_period else report.period_end.isoformat(),
                    "source": report.source, "filename": report.filename, "by_day": report.by_day,
                    "imported_at": report.created_at.isoformat() if isinstance(report.created_at, datetime) else None},
         "totals": {"all": tot(out_lines), "codes": tot(codes), "automatic": tot(auto)},

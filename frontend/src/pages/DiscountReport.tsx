@@ -17,7 +17,7 @@ export type StoreDiscount = { title: string; status: string | null; value: numbe
 type Unused = { name: string; store: StoreDiscount; offers: string[]; placements?: string[] }
 type Totals = { orders: number; discounts: number; gross_sales: number; net_sales: number; aov: number | null; discount_rate: number | null }
 export type DiscountSummary = {
-  report: null | { id: number; period_start: string; period_end: string; source: string; filename: string | null; by_day: boolean }
+  report: null | { id: number; period_start: string; period_end: string; source: string; filename: string | null; by_day: boolean; in_period?: boolean; shown_start?: string; shown_end?: string }
   totals: { all: Totals; codes: Totals; automatic: Totals }
   lines: ReportLine[]; excluded_tests: string[]; grouped: Record<string, number>; note: string; unused: Unused[]
 }

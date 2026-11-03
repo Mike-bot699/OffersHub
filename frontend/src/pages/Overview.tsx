@@ -105,7 +105,9 @@ function FromReport({ o, dr }: { o: StoreOverview; dr: DiscountSummary }) {
       </div>
       <UpcomingCalendar />
       <div className="notice info mt"><small>
-        Discount figures from {dr.report!.source === 'elizeta' ? 'Eli Z sales by discount' : 'the Shopify "Sales by discount code" report'} <strong>{date(dr.report!.period_start)} → {date(dr.report!.period_end)}</strong>, not from the period selected above.
+        {dr.report!.in_period
+          ? <>Discount figures for the selected period, <strong>{date(dr.report!.shown_start!)} → {date(dr.report!.shown_end!)}</strong>, from {dr.report!.source === 'elizeta' ? 'Eli Z sales by discount (daily)' : 'the daily "Sales by discount code" report'}.</>
+          : <>Discount figures from {dr.report!.source === 'elizeta' ? 'Eli Z sales by discount' : 'the Shopify "Sales by discount code" report'} <strong>{date(dr.report!.period_start)} → {date(dr.report!.period_end)}</strong>, whole report: it has no days, so it cannot follow the period selected above.</>}
         AOV without a discount and the share of orders with a code need the store's total orders, not available from Eli Z yet.
       </small></div>
       <div className="grid g2 mt">
