@@ -11,7 +11,7 @@ from app.models import EventChange, PromoEvent
 TRACKED = {
     "name": "Name", "start_date": "Start date", "end_date": "End date", "offer_text": "Offer",
     "offer_description": "Offer", "coupon_codes": "Code", "threshold_amount": "Threshold", "display": "Displayed",
-    "free_shipping": "Free shipping", "giveaway_product": "Give-away product", "free_gift": "Free gift",
+    "free_shipping": "Free shipping", "giveaway_product": "Give-away product", "free_gift": "Bonus",
 }
 
 

@@ -181,7 +181,7 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
       <div className="form-grid mt">
         <Field label="Free shipping"><input value={v('free_shipping', base?.free_shipping)} onChange={set('free_shipping')} placeholder="e.g. over $99" /></Field>
         <Field label="Give-away product"><input value={v('giveaway_product', base?.giveaway_product)} onChange={set('giveaway_product')} /></Field>
-        <Field label="Free gift"><input value={v('free_gift', base?.free_gift)} onChange={set('free_gift')} placeholder={base?.bonus ?? ''} /></Field>
+        <Field label="Bonus"><input value={v('free_gift', base?.free_gift)} onChange={set('free_gift')} placeholder={base?.bonus ?? ''} /></Field>
         <Field label="Forecast: orders"><input type="number" min={0} value={v('forecast_orders', base?.forecast_orders)} onChange={set('forecast_orders')} /></Field>
         <Field label="Forecast: code uses"><input type="number" min={0} value={v('forecast_uses', base?.forecast_uses)} onChange={set('forecast_uses')} /></Field>
         <Field label="Last year's codes (forecast estimate)"><input value={v('compare_codes', base?.compare_codes?.join(', '))} onChange={set('compare_codes')} placeholder="e.g. BF2025" /></Field>

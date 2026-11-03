@@ -274,3 +274,18 @@ def test_forecast_from_the_same_event_last_year(db, c):
     c.patch(f"/api/events/{bf.id}", json={"forecast_orders": 1400})
     ev = {e["name"]: e for e in c.get(f"/api/public/docs/{doc['token']}").json()["events"]}
     assert ev["Black Friday for Big Ideas"]["forecast"]["estimate"] is False  # typed forecast wins
+
+
+def test_changes_box_starts_at_doc_creation_and_can_be_reset(db, c):
+    """Real case: free-gift thresholds updated while preparing the doc must not show as news."""
+    s, tricks, last = _mau(db)
+    c.patch(f"/api/events/{tricks.id}", json={"free_gift": "Spooky Stories eBook over $150"})  # before the doc exists
+    c.patch(f"/api/events/{tricks.id}", json={"free_gift": "Spooky Stories eBook over $130"})
+    doc = c.post("/api/offer-docs", json={"name": "x", "start_date": "2026-10-25", "end_date": "2026-11-03"}).json()
+    ev = lambda: {e["name"]: e for e in c.get(f"/api/public/docs/{doc['token']}").json()["events"]}
+    assert ev()["Tricks, Treats & Clever Feats"]["changes"] is None
+    c.patch(f"/api/events/{tricks.id}", json={"free_gift": "Spooky Stories eBook over $120"})  # after: news
+    assert ev()["Tricks, Treats & Clever Feats"]["changes"]["items"][0]["text"] == \
+        "bonus Spooky Stories eBook over $130 → Spooky Stories eBook over $120"
+    c.post(f"/api/offer-docs/{doc['id']}/reset-changes")
+    assert ev()["Tricks, Treats & Clever Feats"]["changes"] is None

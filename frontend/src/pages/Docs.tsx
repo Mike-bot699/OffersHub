@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, qs } from '../api'
-import { date } from '../format'
+import { date, dateTime } from '../format'
 import { useApp } from '../state'
 import { Card, Drawer, Empty, ErrorBox, Field, Loading, Source } from '../ui'
 
@@ -11,7 +11,7 @@ type Doc = {
   id: number; token: string; name: string; tags: string[]; store_ids: number[]
   range_mode: 'fixed' | 'next_days' | 'this_month' | 'next_month'; start_date: string | null; end_date: string | null; days: number | null
   statuses: string[]; sections: Record<string, boolean>; focus: { perf_tags?: string[]; manual_tags?: string[]; limit?: number }
-  custom_top: string | null; custom_bottom: string | null; range: [string, string]; updated_at: string
+  custom_top: string | null; custom_bottom: string | null; range: [string, string]; updated_at: string; changes_since: string
 }
 type Activity = { id: number; store_id: number; name: string; description: string | null; price: string | null; code: string | null
   start_date: string | null; end_date: string | null; active: boolean }
@@ -99,6 +99,7 @@ function DocEditor({ doc, onClose }: { doc: Doc | null; onClose: () => void }) {
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['docs'] }); onClose() },
   })
+  const reset = useMutation({ mutationFn: () => api.post(`/offer-docs/${doc!.id}/reset-changes`), onSuccess: () => qc.invalidateQueries({ queryKey: ['docs'] }) })
   const del = useMutation({ mutationFn: () => api.del(`/offer-docs/${doc!.id}`), onSuccess: () => { qc.invalidateQueries({ queryKey: ['docs'] }); onClose() } })
   const chk = (on: boolean, label: string, onChange: () => void) => (
     <label key={label} className="row" style={{ gap: 6 }}><input type="checkbox" checked={on} onChange={onChange} /> <span>{label}</span></label>
@@ -127,6 +128,14 @@ function DocEditor({ doc, onClose }: { doc: Doc | null; onClose: () => void }) {
       <div className="row" style={{ gap: 14, flexWrap: 'wrap' }}>{STATUSES.map(([k, l]) => chk(f.statuses.includes(k), l, () => set('statuses', toggle(f.statuses, k))))}</div>
       <div className="section-title">Sections</div>
       <div className="row" style={{ gap: 14, flexWrap: 'wrap' }}>{SECTIONS.map(([k, l]) => chk(!!f.sections[k], l, () => set('sections', { ...f.sections, [k]: !f.sections[k] })))}</div>
+      {doc && f.sections.changes && (
+        <div className="row mt" style={{ gap: 8 }}>
+          <small className="muted">Recent changes box: offer edits since {dateTime(doc.changes_since)}.</small>
+          <button type="button" className="small" disabled={reset.isPending}
+            onClick={() => { if (window.confirm('Start the changes box again from now? Edits made so far will no longer show as updates.')) reset.mutate() }}>
+            {reset.isSuccess ? 'Reset done' : 'Reset changes box'}</button>
+        </div>
+      )}
       {f.sections.focus && <>
         <div className="section-title">Products to focus</div>
         <div className="row" style={{ gap: 14, flexWrap: 'wrap' }}>{PERF.map(([k, l]) => chk(f.perf_tags.includes(k), l, () => set('perf_tags', toggle(f.perf_tags, k))))}</div>

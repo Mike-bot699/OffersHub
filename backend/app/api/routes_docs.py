@@ -44,6 +44,7 @@ def _doc_out(d: OfferDoc, today: date) -> dict:
             "range_mode": d.range_mode, "start_date": d.start_date.isoformat() if d.start_date else None,
             "end_date": d.end_date.isoformat() if d.end_date else None, "days": d.days, "statuses": d.statuses,
             "sections": sections(d), "focus": d.focus, "custom_top": d.custom_top, "custom_bottom": d.custom_bottom,
+            "changes_since": (d.changes_since or d.created_at).isoformat(),
             "range": [start.isoformat(), end.isoformat()], "updated_at": d.updated_at.isoformat()}
 
 
@@ -94,6 +95,16 @@ def new_link(doc_id: int, db: Session = DB):
     d = _get(db, doc_id)
     d.token = secrets.token_urlsafe(24)
     audit(db, "doc.link_regenerated", "offer_doc", d.id)
+    db.commit()
+    return _doc_out(d, business_today())
+
+
+@router.post("/offer-docs/{doc_id}/reset-changes")
+def reset_changes(doc_id: int, db: Session = DB):
+    """The changes box starts again from now: earlier offer edits are no longer shown as updates."""
+    d = _get(db, doc_id)
+    d.changes_since = utcnow()
+    audit(db, "doc.changes_reset", "offer_doc", d.id)
     db.commit()
     return _doc_out(d, business_today())
 

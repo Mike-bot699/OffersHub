@@ -75,7 +75,7 @@ def to_docx(d: dict, link: str) -> bytes:
             if e["bonus"]:
                 _field(doc, "Free shipping", e["bonus"]["free_shipping"])
                 _field(doc, "Give-away product", e["bonus"]["giveaway_product"])
-                _field(doc, "Free gift", e["bonus"]["free_gift"])
+                _field(doc, "Bonus", e["bonus"]["free_gift"])
             _field(doc, "Products", e["products"])
             _field(doc, "Advertising", ", ".join(c["name"] for c in e["channels"]))
             f = e["forecast"]

@@ -11,7 +11,7 @@ Declared choices:
 
 import calendar
 import re
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import or_, select
@@ -30,6 +30,10 @@ DISPLAY = {"full_site": "Home page, collection, product page", "email_only": "Em
            "hidden": "Not shown"}
 PERF = {"best_seller": "Best Seller", "top_seller": "Top Seller", "popular": "Popular", "free": "Free"}
 CHANNELS = {"facebook": "Facebook", "email": "Email", "google": "Google"}
+
+
+def _aware(dt: datetime | None) -> datetime | None:
+    return None if dt is None else dt if dt.tzinfo else dt.replace(tzinfo=UTC)
 
 
 def doc_range(doc: OfferDoc, today: date) -> tuple[date, date]:
@@ -154,9 +158,13 @@ def assemble(db: Session, doc: OfferDoc, today: date) -> dict[str, Any]:
         coupons.setdefault(c.store_id, {})[c.code] = {"value": c.value, "value_type": c.value_type}
     changes: dict[int, list[EventChange]] = {}
     if sec["changes"] and events:
+        # Only changes made after the doc was created (or its changes box reset): edits made while
+        # preparing a doc are not news for its readers.
+        start_from = _aware(doc.changes_since or doc.created_at)
         for c in db.scalars(select(EventChange).where(EventChange.event_id.in_([e.id for e in events]),
                                                       EventChange.at >= since).order_by(EventChange.at)):
-            changes.setdefault(c.event_id, []).append(c)
+            if start_from is None or _aware(c.at) > start_from:
+                changes.setdefault(c.event_id, []).append(c)
 
     ly_cache: dict = {}
 

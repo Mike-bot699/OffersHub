@@ -94,7 +94,7 @@ function EventCard({ e, token }: { e: DocEvent; token: string }) {
         {e.activation && <Field label="Activation">{e.activation}</Field>}
         {b?.free_shipping && <Field label="Free shipping">{b.free_shipping}</Field>}
         {b?.giveaway_product && <Field label="Give-away product">{b.giveaway_product}</Field>}
-        {b?.free_gift && <Field label="Free gift">{b.free_gift}</Field>}
+        {b?.free_gift && <Field label="Bonus">{b.free_gift}</Field>}
         {e.products && <Field label="Products">{e.products}</Field>}
         {e.channels.length > 0 && <Field label="Advertising">{e.channels.map((c) => <span key={c.key} className="pd-tag sm pd-ch" style={{ background: CHANNEL_COLOR[c.key], color: '#fff' }}>{c.name}</span>)}</Field>}
       </div>
