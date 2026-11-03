@@ -274,6 +274,14 @@ def live_offers(store_id: int | None = None, include_demo: bool = False, recent_
     return out
 
 
+@router.get("/events/{event_id}/banner-check")
+def banner_check(event_id: int, db: Session = DB):
+    """Mismatches between the offer and the text of its HTML banner."""
+    from app.offers.banner_check import check
+
+    return check(_event(db, event_id))
+
+
 @router.get("/events/{event_id}")
 def get_event(event_id: int, db: Session = DB):
     e = _event(db, event_id)

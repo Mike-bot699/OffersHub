@@ -289,3 +289,26 @@ def test_changes_box_starts_at_doc_creation_and_can_be_reset(db, c):
         "bonus Spooky Stories eBook over $130 → Spooky Stories eBook over $120"
     c.post(f"/api/offer-docs/{doc['id']}/reset-changes")
     assert ev()["Tricks, Treats & Clever Feats"]["changes"] is None
+
+
+def test_banner_check_against_the_offer(db, c):
+    """Real banners: the Halloween design matches its offer; the outdated design of The Week Before
+    the Week (text as on the owner's screenshot) still says HEADSTART 15%."""
+    s, tricks, last = _mau(db)
+    tricks.coupon_raw = "SPOOKLAB (15 %new) | OWLPASS (existing 20%)"
+    old = ('<p>Desktop</p><div id="banner-desktop" style="width:1975px;height:750px"><span>The week before the week</span>'
+           '<h1>Beat the Rush, Keep the Calm</h1><p>Extra 15% off with code <b>HEADSTART</b></p><p>The quiet way to do Black Friday.</p>'
+           '<a>Start Early ›</a><small>On orders over $99 · Ends Sun 22 Nov, 11:59pm · Free gift over $150</small></div>')
+    week = PromoEvent(store_id=s.id, name="The Week Before the Week", status="scheduled", source="manual", display="full_site",
+                      start_date=date(2026, 11, 16), end_date=date(2026, 11, 22), coupon_codes=["EBF20"], offer_text="20% off $99+",
+                      threshold_amount=99, bonus="Free gift tucked in over $150.", banner_kind="html", banner_content=old)
+    db.add(week)
+    db.commit()
+    assert c.get(f"/api/events/{tricks.id}/banner-check").json()["findings"] == []
+    f = c.get(f"/api/events/{week.id}/banner-check").json()["findings"]
+    assert any("HEADSTART" in x for x in f) and any("15%" in x for x in f) and any("EBF20" in x for x in f)
+    assert not any("$150" in x or "22 Nov" in x for x in f)  # bonus threshold and end date are right
+    week.end_date = date(2026, 11, 23)
+    db.commit()
+    assert any("ends 22 Nov" in x for x in c.get(f"/api/events/{week.id}/banner-check").json()["findings"])
+    assert c.get(f"/api/events/{last.id}/banner-check").json()["readable"] is False  # no banner

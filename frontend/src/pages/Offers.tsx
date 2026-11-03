@@ -256,6 +256,7 @@ function BannerEditor({ ev }: { ev: Ev }) {
         </div>
       )}
       {preview && <BannerDrawer eventId={ev.id} name={ev.name} onClose={() => setPreview(false)} />}
+      {banner.data?.content && <BannerCheck eventId={ev.id} />}
       <div className="row">
         <input type="file" accept=".html,.htm,image/png,image/jpeg,image/webp" onChange={(e) => e.target.files?.[0] && upload.mutate(e.target.files[0])} />
         {ev.has_banner && <button onClick={() => remove.mutate()}>Remove</button>}
@@ -537,6 +538,23 @@ function EmailsField({ value, onChange }: { value: { subject: string; preview: s
         </div>
       ))}
       <div><button type="button" className="small" onClick={() => onChange([...rows, { subject: '', preview: '' }])}>Add email</button></div>
+    </div>
+  )
+}
+
+/** Mismatches between the offer and the text of its banner (codes, percentages, amounts, end date). */
+function BannerCheck({ eventId }: { eventId: number }) {
+  const run = useMutation({ mutationFn: () => api.get<{ readable: boolean; findings: string[]; checked: string[]; note: string | null }>(`/events/${eventId}/banner-check`) })
+  const r = run.data
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <button type="button" className="small" onClick={() => run.mutate()} disabled={run.isPending}>{run.isPending ? 'Checking…' : 'Check banner vs offer'}</button>
+      {r && !r.readable && <div className="notice info mt"><small>{r.note}</small></div>}
+      {r && r.readable && (r.findings.length
+        ? <div className="notice warning mt"><strong>{r.findings.length} mismatch{r.findings.length > 1 ? 'es' : ''} between banner and offer</strong>
+            <ul className="tight">{r.findings.map((f, i) => <li key={i}>{f}</li>)}</ul></div>
+        : <div className="notice good mt"><small>No mismatches: the banner's {r.checked.join(', ')} match the offer. Save the offer first if you just changed it.</small></div>)}
+      <ErrorBox error={run.error} />
     </div>
   )
 }
