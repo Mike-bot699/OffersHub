@@ -94,6 +94,7 @@ function StoreCard({ s }: { s: StoreSettings }) {
         </small></div>
       ) : <div className="notice info mt"><small>Sync started. Products and tags update in a minute.</small></div>)}
       {ez.last_error && <div className="error-box mt">{ez.last_error}</div>}
+      {ez.has_key && <LastSync storeId={s.id} refresh={sync.data} />}
       <small className="muted" style={{ display: 'block', marginTop: 8 }}>
         Last verified: {ez.last_verified_at ? dateTime(ez.last_verified_at) : 'never'}. Eli Z provides: catalog, product sales, discount codes, sales by discount (daily) and collections.
         Not available: {Object.values(ez.not_available).join(' ')}
@@ -119,5 +120,38 @@ function AddStore({ onDone }: { onDone: () => void }) {
       <div className="row mt"><button className="primary" disabled={!f.code || !f.name || m.isPending} onClick={() => m.mutate()}>Add store</button></div>
       <ErrorBox error={m.error} />
     </Card>
+  )
+}
+
+type Job = { id: number; status: string; trigger: string; started_at: string; finished_at: string | null
+  stats: Record<string, Record<string, unknown>>; warnings: string[] }
+
+const STEPS: [string, string, (v: Record<string, unknown>) => string][] = [
+  ['products', 'Catalog', (v) => `${v.active ?? 0} active products`],
+  ['sales', 'Product sales (30 days)', (v) => `${v.rows ?? 0} rows, ${v.units_total ?? 0} units`],
+  ['discount_codes', 'Discount codes', (v) => `${v.codes ?? 0} codes → ${v.discounts ?? 0} discounts${v.complete === false ? ' (list cut at the page limit)' : ''}`],
+  ['discount_sales', 'Sales by discount', (v) => (v.rows ? `${v.rows} rows${v.by_day ? `, daily ${v.first_day} → ${v.last_day}` : ', no days'}${v.mode === 'incremental' ? ' (last week re-read)' : ''}` : 'no rows returned')],
+  ['collections', 'Collections', (v) => `${v.collections ?? 0} collections`],
+]
+
+/** What the latest Eli Z sync brought in, step by step, without having to run one. */
+function LastSync({ storeId, refresh }: { storeId: number; refresh: unknown }) {
+  const q = useQuery({ queryKey: ['sync-jobs', storeId, refresh], queryFn: () => api.get<{ jobs: Job[] }>(`/stores/${storeId}/sync-jobs?limit=1`) })
+  const job = q.data?.jobs[0]
+  if (!job) return null
+  return (
+    <div className="mt">
+      <div className="section-title">Last sync · {dateTime(job.started_at)} · {job.trigger === 'scheduled' ? 'nightly' : 'manual'} · {job.status}</div>
+      <table><tbody>{STEPS.map(([k, label, text]) => {
+        const v = job.stats?.[k]
+        return (
+          <tr key={k}>
+            <td style={{ width: 24 }}>{!v ? <span className="muted">–</span> : v.error ? <span className="critical-ink">✗</span> : <span className="good-ink">✓</span>}</td>
+            <td style={{ whiteSpace: 'nowrap' }}><strong>{label}</strong></td>
+            <td><small>{!v ? <span className="muted">not run</span> : v.error ? <span className="critical-ink">{String(v.error)}</span> : text(v)}</small></td>
+          </tr>)
+      })}</tbody></table>
+      {job.warnings?.length > 0 && <ul className="tight mt">{job.warnings.map((w, i) => <li key={i}><small className="muted">{w}</small></li>)}</ul>}
+    </div>
   )
 }
