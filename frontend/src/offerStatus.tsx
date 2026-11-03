@@ -394,6 +394,13 @@ export function usePlanFilters(rows: Ev[]) {
 
 export type PlanFilters = ReturnType<typeof usePlanFilters>
 
+const CHANNEL: Record<string, [string, string]> = { facebook: ['Facebook', '#1877f2'], email: ['Email', '#000'], google: ['Google', '#d93025'] }
+
+export function ChannelTag({ c }: { c: string }) {
+  const [name, bg] = CHANNEL[c] ?? [c, '#6b7280']
+  return <span className="tag-chip" style={{ background: bg, color: '#fff', borderColor: bg, marginRight: 4 }}>{name}</span>
+}
+
 export function PlanTable({ rows, onOpen, showResults = false, empty, filters }: {
   rows: Ev[]; onOpen: (e: Ev) => void; showResults?: boolean; empty: ReactNode; filters?: PlanFilters
 }) {
@@ -409,7 +416,7 @@ export function PlanTable({ rows, onOpen, showResults = false, empty, filters }:
           <table>
             <thead><tr>
               {th('_start', 'Start Date', false)}{th('_end', 'End Date', false)}{th('_dur', 'Duration')}{th('_name', 'Name', false, 'name-cell')}
-              {th('_store', 'Store', false)}<th>Displayed</th>{th('_status', 'Status', false)}<th>Technical Status</th>
+              {th('_store', 'Store', false)}<th>Displayed</th><th>Advertising</th>{th('_status', 'Status', false)}<th>Technical Status</th>
               <th>Offer</th><th>Discount Code</th>{!showResults && <th>Code results</th>}
               {showResults && <><th className="num">Offer orders</th><th className="num">Share of orders</th><th className="num">Offer sales</th></>}
               <th className="num">Threshold</th><th>Level</th><th>Type</th><th>Bonus</th><th>Description</th><th>Landing Page</th><th>Articles</th>
@@ -427,6 +434,7 @@ export function PlanTable({ rows, onOpen, showResults = false, empty, filters }:
                   {e.display ? <small>{DISPLAY_TEXT[e.display] ?? label(e.display)}</small> : <span className="muted">—</span>}
                   {e.has_banner && <div style={{ marginTop: 4 }}><BannerThumb eventId={e.id} name={e.name} /></div>}
                 </td>
+                <td style={{ whiteSpace: 'nowrap' }}>{e.ad_channels?.length ? e.ad_channels.map((c) => <ChannelTag key={c} c={c} />) : <span className="muted">—</span>}</td>
                 <td style={{ whiteSpace: 'nowrap' }}>
                   <OfferStatusBadge status={e.status} />
                   {e.conflict_open && <div><span className="badge critical" title={e.status_conflict ?? ''}>▲ Conflict — review</span></div>}

@@ -168,6 +168,12 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
         <Field label="Collections / products (comma separated, empty = All)"><input list="store-collections" value={v('level_targets', base?.level_targets?.join(', '))} onChange={set('level_targets')} /></Field>
         <datalist id="store-collections">{collections.data?.map((c) => <option key={c.id} value={c.title}>{`${c.products} products${c.kind === 'smart' ? ' · smart' : ''}`}</option>)}</datalist>
         <Field label="Displayed"><select value={v('display', base?.display)} onChange={set('display')}><option value="">—</option><option value="full_site">Full-Displayed</option><option value="email_only">Email-Only</option><option value="hidden">Hidden</option></select></Field>
+        <div className="field">Advertising
+          <div className="row" style={{ gap: 14 }}>{AD_CHANNELS.map(([k, l]) => (
+            <label key={k} className="row" style={{ gap: 6 }}><input type="checkbox" checked={(channels ?? base?.ad_channels ?? []).includes(k)}
+              onChange={() => { const cur = channels ?? base?.ad_channels ?? []; setChannels(cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k]) }} /> {l}</label>))}
+          </div>
+        </div>
         <Field label="Landing page"><input value={v('landing_page', base?.landing_page)} onChange={set('landing_page')} placeholder="https://…" /></Field>
       </div>
       <div className="mt"><Field label="Description"><textarea value={v('description', base?.description)} onChange={set('description')} /></Field></div>
@@ -186,12 +192,6 @@ function EventEditor({ ev, onClose }: { ev: Ev | 'new' | null; onClose: () => vo
         <Field label="Forecast: code uses"><input type="number" min={0} value={v('forecast_uses', base?.forecast_uses)} onChange={set('forecast_uses')} /></Field>
         <Field label="Last year's codes (forecast estimate)"><input value={v('compare_codes', base?.compare_codes?.join(', '))} onChange={set('compare_codes')} placeholder="e.g. BF2025" /></Field>
         <Field label="Forecast: AOV ($)"><input type="number" min={0} value={v('forecast_aov', base?.forecast_aov)} onChange={set('forecast_aov')} /></Field>
-      </div>
-      <div className="field mt">Advertising channels
-        <div className="row" style={{ gap: 14 }}>{AD_CHANNELS.map(([k, l]) => (
-          <label key={k} className="row" style={{ gap: 6 }}><input type="checkbox" checked={(channels ?? base?.ad_channels ?? []).includes(k)}
-            onChange={() => { const cur = channels ?? base?.ad_channels ?? []; setChannels(cur.includes(k) ? cur.filter((x) => x !== k) : [...cur, k]) }} /> {l}</label>))}
-        </div>
       </div>
       <EmailsField value={emails ?? (base?.email_variants?.length ? base.email_variants : emailsFromBanner(base?.banner_message))} onChange={setEmails} />
       <div className="mt"><Field label="Extra details (shown in docs; Notes stay internal)"><textarea rows={2} value={v('extra_details', base?.extra_details)} onChange={set('extra_details')} /></Field></div>

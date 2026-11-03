@@ -23,10 +23,32 @@ def _amount(v: float) -> str:
     return f"${v:g}"
 
 
+VALUE = re.compile(r"\d\s*%|\$\s*\d+(?:\.\d+)?\s*off", re.IGNORECASE)
+
+
 def describe(coupon_raw: str | None, threshold: float | None, display: str | None,
-             store_codes: dict[str, dict] | None = None, offer_text: str | None = None) -> str | None:
-    if not coupon_raw:
-        return None
+             store_codes: dict[str, dict] | None = None, offer_text: str | None = None,
+             codes: list[str] | None = None) -> str | None:
+    """From the calendar's Coupon cell; when the cell is missing or no longer matches the offer's
+    codes (changed in OffersHub), from the Offer text: one part per code, in order
+    ("15% off $99+ (new). 20% off $99+ (email)" with FIRSTDIBS, CLUBDIBS)."""
+    codes = [c.upper() for c in codes or []]
+    if coupon_raw and codes and set(parse_codes(coupon_raw)) != set(codes):
+        coupon_raw = None  # stale cell
+    if coupon_raw:
+        out = _describe_cell(coupon_raw, threshold, display, store_codes, offer_text)
+        if out:
+            return out
+    if codes and offer_text:
+        parts = [p.strip() for p in re.split(r"\s*[·|;]\s*|\.\s+(?=[\d$])", offer_text) if VALUE.search(p)]
+        if len(parts) == len(codes):
+            notes = [re.sub(r"[()]", " ", p) for p in parts]  # "(new)" inside a part would break the cell syntax
+            return _describe_cell(" | ".join(f"{c} ({n})" for c, n in zip(codes, notes)), threshold, display, store_codes, offer_text)
+    return None
+
+
+def _describe_cell(coupon_raw: str, threshold: float | None, display: str | None,
+                   store_codes: dict[str, dict] | None = None, offer_text: str | None = None) -> str | None:
     # A single code and a single value in the Offer text ("20% off $99+") belong together.
     single = None
     if len(parse_codes(coupon_raw)) == 1 and offer_text:

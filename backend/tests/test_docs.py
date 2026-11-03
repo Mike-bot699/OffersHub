@@ -193,6 +193,13 @@ def test_offer_sentence_from_the_calendar_coupon_cell():
     assert describe("EBF20", 99, "full_site", None, "20% off $99+") == \
         "Customers get 20% off orders over $99 with code EBF20, shown on the site."
     assert describe("EBF20", 99, "full_site", None, "20% off (new) · 25% off (existing)") is None  # two values: not paired
+    # no cell, or a cell with old codes: the Offer text, one part per code (Curious Club as edited in OffersHub)
+    expected = ("New customers get 15% off orders over $99 with code FIRSTDIBS, shown on the site. "
+                "Email subscribers only get 20% off orders over $99 with code CLUBDIBS.")
+    assert describe(None, 99, "full_site", None, "15% off $99+ (new). 20% off $99+ (email)", ["FIRSTDIBS", "CLUBDIBS"]) == expected
+    assert describe("FIRSTPEEK (new 15%) | ACORNPASS (existing 20%)", 99, "full_site", None,
+                    "15% off $99+ (new, banner) · 20% off $99+ (existing, email)", ["FIRSTDIBS", "CLUBDIBS"]) == expected
+    assert describe(None, 99, "full_site", None, "20% off (new) · 25% off (existing)", ["BF2026"]) is None  # 2 parts, 1 code
     assert describe("SPOOKLAB (reused, already live)", 99, "email_only",
                     {"SPOOKLAB": {"value": 15.0, "value_type": "percent"}}) == "Customers get 15% off orders over $99 with code SPOOKLAB."
 
@@ -204,7 +211,7 @@ def test_doc_uses_written_description_then_generated_then_offer_text(db, c):
     doc = c.post("/api/offer-docs", json={"name": "x", "start_date": "2026-10-25", "end_date": "2026-11-03"}).json()
     ev = {e["name"]: e for e in c.get(f"/api/public/docs/{doc['token']}").json()["events"]}
     assert ev["Tricks, Treats & Clever Feats"]["offer"].startswith("New customers get 15% off orders over $99")
-    assert ev["Last Treats Standing"]["offer"] == "15% off entire order (final 72h)"  # no cell, no store data
+    assert ev["Last Treats Standing"]["offer"] == "Customers get 15% off orders over $99 with code SPOOKLAB."  # from its Offer text
     assert ev["Last Treats Standing"]["emails"] == [{"subject": "The treats are almost gone 🎃",
                                                      "preview": "72 hours left on 15% off — then the cauldron closes"}]
     c.patch(f"/api/events/{last.id}", json={"email_variants": [{"subject": "A", "preview": "a"}, {"subject": "B", "preview": ""},
