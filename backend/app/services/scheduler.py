@@ -44,6 +44,15 @@ def due_store_ids() -> list[int]:
 
 
 def tick() -> None:
+    """Off Vercel (a container) this replaces the nightly cron: ended offers close, due stores sync."""
+    try:
+        from app.offers.status import close_ended
+
+        with session_scope() as db:
+            if n := close_ended(db):
+                log.info("Closed %s ended offers", n)
+    except Exception:
+        log.exception("Closing ended offers failed")
     for store_id in due_store_ids():
         try:
             with session_scope() as db:

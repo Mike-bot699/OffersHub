@@ -86,7 +86,7 @@ def create_app() -> FastAPI:
             candidate = dist / path
             if path and candidate.is_file() and dist in candidate.resolve().parents:
                 return FileResponse(candidate)
-            return FileResponse(dist / "index.html")
+            return FileResponse(dist / "index.html", headers={"Cache-Control": "no-cache"})  # new deploys show at once
     return app
 
 

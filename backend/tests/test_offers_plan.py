@@ -2,7 +2,7 @@ from datetime import date, timedelta
 
 from fastapi.testclient import TestClient
 
-from app.models import Integration
+from app.models import Integration, PromoEvent
 from app.services.offers_import import parse_level
 
 TODAY = date.today()
@@ -127,3 +127,16 @@ def test_tag_colours_set_shared_and_reset(db, store):
     assert c.put("/api/tag-styles", json={"name": "X", "bg": "#000000"}).status_code == 422  # both colours needed
     c.put("/api/tag-styles", json={"name": "Early Black Friday"})  # no colours: automatic again
     assert c.get("/api/tag-styles").json() == []
+
+
+def test_scheduler_tick_closes_ended_offers_off_vercel(db, store):
+    """In a container there is no Vercel Cron: the in-process tick must close ended offers itself."""
+    from app.services import scheduler
+
+    ev = PromoEvent(store_id=store.id, name="Tricks, Treats & Clever Feats", source="manual", status="live",
+                    start_date=date(2026, 10, 25), end_date=date(2026, 11, 1))
+    db.add(ev)
+    db.commit()
+    scheduler.tick()
+    db.expire_all()
+    assert db.get(PromoEvent, ev.id).status == "completed"
