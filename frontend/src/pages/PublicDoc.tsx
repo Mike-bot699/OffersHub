@@ -19,7 +19,7 @@ type DocEvent = {
 export type DocData = {
   name: string; tags: Tag[]; start_date: string; end_date: string; stores: { code: string; name: string }[]
   custom_top: string | null; custom_bottom: string | null; focus_rule: string
-  focus: { id: number; store_code: string; name: string; sku: string; url: string | null; perf: string | null; tags: string[] }[]
+  focus: { id: number; store_code: string; name: string; sku: string | null; url: string | null; perf: string | null; tags: string[] }[]
   events: DocEvent[]
   product_offers: { store_code: string; name: string; sku: string | null; url: string | null; offer: string | null }[]
   extra_activities: { store_code: string; name: string; description: string | null; price: string | null; code: string | null }[]
@@ -190,7 +190,7 @@ export function DocBody({ d, token }: { d: DocData; token: string }) {
               <tr key={p.id}>
                 {multi && <td data-label="Store">{p.store_code}</td>}
                 <td data-label="Product" className="pd-main">{p.url ? <a href={p.url} target="_blank" rel="noopener noreferrer">{p.name}</a> : p.name}</td>
-                <td data-label="SKU" className="pd-mono">{p.sku}</td>
+                <td data-label="SKU" className="pd-mono">{p.sku ?? '-'}</td>
                 <td data-label="Performance">{p.perf && <span className="pd-tag sm" style={{ background: PERF_COLOR[p.perf]?.[0], color: PERF_COLOR[p.perf]?.[1] }}>{p.perf === 'Best Seller' ? '🔥 ' : ''}{p.perf}</span>}</td>
                 <td data-label="Extra tags">{p.tags.map((t) => <span key={t} className="pd-tag sm" style={{ background: '#000', color: '#fff', marginRight: 4 }}>{t}</span>)}</td>
               </tr>))}

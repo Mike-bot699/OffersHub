@@ -99,9 +99,11 @@ def test_event_tags_cleaned_and_editable(db, store):
     assert c.patch(f"/api/events/{ev['id']}", json={"tags": []}).json()["tags"] == []
 
 
-def test_live_offer_completes_after_its_end_date(db, store):
+def test_live_offer_completes_after_its_end_date(db, store, monkeypatch):
+    from app.offers import status
     from app.offers.status import close_ended
 
+    monkeypatch.setattr(status, "business_today", lambda: date(2026, 11, 3))  # reads below also auto-close: fix "today"
     c = _client()
     mk = lambda name, s, e, status: c.post("/api/events", json={"store_id": store.id, "name": name, "start_date": str(s),
                                                                 "end_date": str(e), "status": status}).json()

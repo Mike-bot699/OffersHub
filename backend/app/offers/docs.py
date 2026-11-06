@@ -17,7 +17,7 @@ from typing import Any
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.models import Coupon, EventChange, ExtraActivity, OfferDoc, Product, PromoEvent, Store, TagStyle
+from app.models import Coupon, EventChange, ExtraActivity, OfferDoc, Product, PromoEvent, Store, TagStyle, Variant
 from app.offers.changes import TRACKED
 from app.offers.forecast import estimate as forecast_estimate
 from app.offers.offer_text import describe as describe_offer
@@ -215,12 +215,13 @@ def assemble(db: Session, doc: OfferDoc, today: date) -> dict[str, Any]:
         titles: dict[tuple[int, str], Product] = {}
         for p in db.scalars(select(Product).where(Product.store_id.in_(by_id))):
             titles.setdefault((p.store_id, p.title.strip().lower()), p)
-        for e in product_offers:
-            for t in e.level_targets or [e.name]:
-                p = titles.get((e.store_id, t.strip().lower()))
-                out_products.append({"store_code": by_id[e.store_id].code, "name": t, "sku": p.source_id if p else None,
-                                     "url": _product_url(by_id[e.store_id], p), "offer": _clean(e.offer_description) or _clean(e.offer_text),
-                                     "event": e.name})
+        matched = [(e, t, titles.get((e.store_id, t.strip().lower()))) for e in product_offers
+                   for t in e.level_targets or [e.name]]
+        sku_of = skus(db, [p.id for _, _, p in matched if p])
+        for e, t, p in matched:
+            out_products.append({"store_code": by_id[e.store_id].code, "name": t, "sku": sku_of.get(p.id) if p else None,
+                                 "url": _product_url(by_id[e.store_id], p),
+                                 "offer": _clean(e.offer_description) or _clean(e.offer_text), "event": e.name})
 
     focus = []
     if sec["focus"]:
@@ -242,6 +243,19 @@ def assemble(db: Session, doc: OfferDoc, today: date) -> dict[str, Any]:
         "focus": focus, "focus_rule": focus_rule(doc), "events": [event_out(e) for e in events] if sec["events"] else [],
         "product_offers": out_products, "extra_activities": acts,
     }
+
+
+def skus(db: Session, product_ids: list[int]) -> dict[int, str]:
+    """The SKU shown for a product: its variants' SKUs (never the platform product id). One SKU is shown
+    as is; several are listed, the first three plus "+N more". A product without SKUs is left out."""
+    found: dict[int, list[str]] = {}
+    if product_ids:
+        for pid, sku in db.execute(select(Variant.product_id, Variant.sku).where(Variant.product_id.in_(product_ids))
+                                   .order_by(Variant.product_id, Variant.id)):
+            sku = (sku or "").strip()
+            if sku and sku not in found.setdefault(pid, []):
+                found[pid].append(sku)
+    return {pid: ", ".join(v[:3]) + (f" +{len(v) - 3} more" if len(v) > 3 else "") for pid, v in found.items() if v}
 
 
 def _product_url(store: Store, p: Product | None) -> str | None:
@@ -276,6 +290,8 @@ def focus_products(db: Session, doc: OfferDoc, stores: list[Store]) -> list[dict
         if str(p.id) in pin or (p.perf_tag in perf) or (tags & manual):
             picked.append(p)
     picked.sort(key=lambda p: (str(p.id) not in pin, p.perf_rank if p.perf_rank is not None else 10**9, p.title))
-    return [{"id": p.id, "store_code": by_id[p.store_id].code, "name": p.title, "sku": p.source_id,
+    picked = picked[:limit]
+    sku_of = skus(db, [p.id for p in picked])
+    return [{"id": p.id, "store_code": by_id[p.store_id].code, "name": p.title, "sku": sku_of.get(p.id),
              "url": _product_url(by_id[p.store_id], p), "perf": PERF.get(p.perf_tag or ""),
-             "tags": list(p.manual_tags or [])} for p in picked[:limit]]
+             "tags": list(p.manual_tags or [])} for p in picked]

@@ -9,7 +9,7 @@ from docx import Document
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app.models import Product, PromoEvent, Store
+from app.models import Product, PromoEvent, Store, Variant
 
 TODAY = date(2026, 10, 27)
 BANNER = (__import__("pathlib").Path(__file__).parent / "fixtures" / "halloween_banner.html").read_text()
@@ -67,6 +67,10 @@ def _mau(db):
 
 def test_doc_content_follows_the_plan_live(db, c):
     s, tricks, _last = _mau(db)
+    biker = db.scalar(select(Product).where(Product.title.startswith("Tiny Biker")))
+    db.add_all([Variant(store_id=s.id, product_id=biker.id, source="elizeta", source_id=f"v{i}", sku=sku)
+                for i, sku in enumerate(["TB-MOTO-RED", "TB-MOTO-BLUE", "TB-MOTO-RED", ""])])
+    db.commit()
     a = c.post("/api/extra-activities", json={"store_id": s.id, "name": "Extended Warranty", "price": "$8.95",
                                               "description": "+1 year of free replacements and support"})
     assert a.status_code == 201
@@ -85,8 +89,11 @@ def test_doc_content_follows_the_plan_live(db, c):
     assert lt["display_text"] == "Email only, not shown on the site" and lt["banner"] is False
     assert lt["emails"][0]["subject"] == "The treats are almost gone 🎃" and lt["products"] == "Halloween"
     assert [p["name"] for p in d["product_offers"]] == ["Tiny Biker Anti-Tip Light & Sound Motorcycle"]
-    assert d["product_offers"][0]["sku"] == "15348751499638"
+    # the SKU comes from the variants, never the platform product id (15348751499638)
+    assert d["product_offers"][0]["sku"] == "TB-MOTO-RED, TB-MOTO-BLUE"
     focus = {p["name"]: p for p in d["focus"]}
+    assert focus["Tiny Biker Anti-Tip Light & Sound Motorcycle"]["sku"] == "TB-MOTO-RED, TB-MOTO-BLUE"
+    assert focus["RC Paper Airplane"]["sku"] is None  # no SKU on the variants: shown as "-", not the product id
     assert set(focus) == {"Tiny Biker Anti-Tip Light & Sound Motorcycle", "RC Paper Airplane"}  # not-active excluded
     assert focus["Tiny Biker Anti-Tip Light & Sound Motorcycle"]["url"] == \
         "https://www.thelittlelearnerstoys.com/products/tiny-biker-anti-tip-light-sound-motorcycle"
@@ -285,7 +292,7 @@ def test_forecast_from_the_same_event_last_year(db, c):
 
 def test_changes_box_starts_at_doc_creation_and_can_be_reset(db, c):
     """Real case: free-gift thresholds updated while preparing the doc must not show as news."""
-    s, tricks, last = _mau(db)
+    _s, tricks, _last = _mau(db)
     c.patch(f"/api/events/{tricks.id}", json={"free_gift": "Spooky Stories eBook over $150"})  # before the doc exists
     c.patch(f"/api/events/{tricks.id}", json={"free_gift": "Spooky Stories eBook over $130"})
     doc = c.post("/api/offer-docs", json={"name": "x", "start_date": "2026-10-25", "end_date": "2026-11-03"}).json()
