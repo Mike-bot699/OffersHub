@@ -69,7 +69,7 @@ def test_doc_content_follows_the_plan_live(db, c):
     s, tricks, _last = _mau(db)
     biker = db.scalar(select(Product).where(Product.title.startswith("Tiny Biker")))
     db.add_all([Variant(store_id=s.id, product_id=biker.id, source="elizeta", source_id=f"v{i}", sku=sku)
-                for i, sku in enumerate(["TB-MOTO-RED", "TB-MOTO-BLUE", "TB-MOTO-RED", ""])])
+                for i, sku in enumerate(["", "DES12-15348751400017.1", "DES12-15348751400017.2"])])
     db.commit()
     a = c.post("/api/extra-activities", json={"store_id": s.id, "name": "Extended Warranty", "price": "$8.95",
                                               "description": "+1 year of free replacements and support"})
@@ -90,9 +90,9 @@ def test_doc_content_follows_the_plan_live(db, c):
     assert lt["emails"][0]["subject"] == "The treats are almost gone 🎃" and lt["products"] == "Halloween"
     assert [p["name"] for p in d["product_offers"]] == ["Tiny Biker Anti-Tip Light & Sound Motorcycle"]
     # the SKU comes from the variants, never the platform product id (15348751499638)
-    assert d["product_offers"][0]["sku"] == "TB-MOTO-RED, TB-MOTO-BLUE"
+    assert d["product_offers"][0]["sku"] == "15348751400017"  # DES12-....1 / .2: the middle number, once (not the product id)
     focus = {p["name"]: p for p in d["focus"]}
-    assert focus["Tiny Biker Anti-Tip Light & Sound Motorcycle"]["sku"] == "TB-MOTO-RED, TB-MOTO-BLUE"
+    assert focus["Tiny Biker Anti-Tip Light & Sound Motorcycle"]["sku"] == "15348751400017"
     assert focus["RC Paper Airplane"]["sku"] is None  # no SKU on the variants: shown as "-", not the product id
     assert set(focus) == {"Tiny Biker Anti-Tip Light & Sound Motorcycle", "RC Paper Airplane"}  # not-active excluded
     assert focus["Tiny Biker Anti-Tip Light & Sound Motorcycle"]["url"] == \
@@ -112,6 +112,15 @@ def test_doc_content_follows_the_plan_live(db, c):
                                           "sections": {"changes": False, "forecast": False}})
     t = c.get(f"/api/public/docs/{doc['token']}").json()["events"][0]
     assert t["changes"] is None and t["forecast"] is None
+
+
+def test_short_sku_is_the_middle_number():
+    from app.offers.docs import short_sku
+
+    assert short_sku("DES12-15125585166710.1") == "15125585166710"
+    assert short_sku("DES12-15125585166710") == "15125585166710"
+    assert short_sku("15125585166710.3") == "15125585166710"
+    assert short_sku("  ") is None and short_sku(None) is None
 
 
 def test_rolling_range_and_statuses(db, c):

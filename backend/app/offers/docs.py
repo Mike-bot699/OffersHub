@@ -245,17 +245,27 @@ def assemble(db: Session, doc: OfferDoc, today: date) -> dict[str, Any]:
     }
 
 
+def short_sku(sku: str | None) -> str | None:
+    """The middle number of a SKU, as the team reads it: "DES12-15125585166710.1" -> "15125585166710".
+    The prefix up to the first "-" and anything from the first "." on are dropped."""
+    sku = (sku or "").strip()
+    if not sku:
+        return None
+    core = sku.split("-", 1)[1] if "-" in sku else sku
+    return core.split(".", 1)[0].strip() or None
+
+
 def skus(db: Session, product_ids: list[int]) -> dict[int, str]:
-    """The SKU shown for a product: its variants' SKUs (never the platform product id). One SKU is shown
-    as is; several are listed, the first three plus "+N more". A product without SKUs is left out."""
-    found: dict[int, list[str]] = {}
+    """One SKU per product (never the platform product id): the short form of its first variant's SKU.
+    A product whose variants have no SKU is left out (shown as "-")."""
+    found: dict[int, str] = {}
     if product_ids:
         for pid, sku in db.execute(select(Variant.product_id, Variant.sku).where(Variant.product_id.in_(product_ids))
                                    .order_by(Variant.product_id, Variant.id)):
-            sku = (sku or "").strip()
-            if sku and sku not in found.setdefault(pid, []):
-                found[pid].append(sku)
-    return {pid: ", ".join(v[:3]) + (f" +{len(v) - 3} more" if len(v) > 3 else "") for pid, v in found.items() if v}
+            short = short_sku(sku)
+            if short and pid not in found:
+                found[pid] = short
+    return found
 
 
 def _product_url(store: Store, p: Product | None) -> str | None:
