@@ -8,6 +8,7 @@
   uv run python -m app.cli backup              # SQLite online backup
   uv run python -m app.cli restore FILE        # restore a backup (stop the server first)
   uv run python -m app.cli import-offers PATH  # import the offers workbook (add --commit to write)
+  uv run python -m app.cli copy-db             # copy all data from EGI_COPY_FROM_URL into this (empty) database
 """
 
 import json
@@ -32,6 +33,18 @@ def main(argv: list[str]) -> int:
         cfg = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
         command.upgrade(cfg, "head")
         return 0
+    if cmd == "copy-db":
+        import os
+
+        from app.services.copy_db import copy_from
+
+        url = os.environ.get("EGI_COPY_FROM_URL")
+        if not url:
+            print("Set EGI_COPY_FROM_URL to the source database URL (never pass it on the command line).")
+            return 2
+        out = copy_from(url)
+        print(json.dumps({k: v for k, v in out.items() if k != "counts"}, indent=1))
+        return 0 if out["ok"] else 1
 
     from sqlalchemy import select
 

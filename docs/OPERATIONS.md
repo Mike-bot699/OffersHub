@@ -53,3 +53,29 @@ The same code runs hosted; only environment changes:
 5. Serve over HTTPS only (session cookies are `Secure` in hosted mode). Run one instance with
    `EGI_SCHEDULER_ENABLED=true`; any additional instances must set it to `false`.
 6. Verify: `/api/health`, login, *Test connection* on each store, a manual sync, and a backup/restore drill.
+
+## Hosting on EZ App (prj-<name>.ezapp.ovh)
+
+The platform runs one app per project as a systemd service and expects Node.js conventions; OffersHub
+overrides the three commands (set on the project, not in package.json):
+
+| Step    | Command                          |
+|---------|----------------------------------|
+| install | `bash scripts/ezapp/install.sh`  |
+| build   | `bash scripts/ezapp/build.sh`    |
+| start   | `bash scripts/ezapp/start.sh`    |
+
+Environment variables (set through the platform API, never committed): `EGI_DATABASE_URL` (required: the
+code directory is replaced on every deploy, so a SQLite file must live outside it, e.g.
+`sqlite:////home/dev/offershub-data/egi.db`), `EGI_SECRET_KEY` (**the same key as the previous host**, or the
+stored Eli Z credentials cannot be decrypted), `EGI_AUTH_MODE=password`, `EGI_AUTH_PASSWORD`.
+`CRON_SECRET` is not needed: off Vercel the in-process scheduler syncs stores and closes ended offers.
+
+Moving the data from another database (e.g. Neon): deploy once (the start step migrates the empty
+database), then run through the platform's exec endpoint, with the source URL only in the environment:
+
+    EGI_COPY_FROM_URL=… uv run --no-dev python -m app.cli copy-db
+
+It refuses a non-empty target or a different schema revision, copies every table, and compares the row
+count of each table (exit code 1 and a list of differences if anything does not match). Then remove
+`EGI_COPY_FROM_URL`. Keep the old host and database until the new one is confirmed.
