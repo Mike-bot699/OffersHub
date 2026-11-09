@@ -23,7 +23,7 @@ from app.offers.forecast import estimate as forecast_estimate
 from app.offers.offer_text import describe as describe_offer
 
 DEFAULT_STATUSES = ["live", "scheduled", "in_progress"]
-SECTIONS = {"focus": True, "events": True, "product_offers": True, "extra_activities": True, "bonus": True,
+SECTIONS = {"period_forecast": True, "focus": True, "events": True, "product_offers": True, "extra_activities": True, "bonus": True,
             "forecast": True, "extra_details": True, "changes": True}
 CHANGES_DAYS = 14
 DISPLAY = {"full_site": "Home page, collection, product page", "email_only": "Email only, not shown on the site",
@@ -88,6 +88,33 @@ def _changes(items: list) -> list[dict]:
             seen.add(c["field"])
             uniq.append(c)
     return list(reversed(uniq))[:3]
+
+
+def period_forecast(doc: OfferDoc) -> dict | None:
+    """The doc's period forecast, as typed: revenue (converted to USD at the typed rate when given in
+    another currency) and AOV give the orders estimate = revenue / AOV. Nothing is fetched or guessed:
+    without a revenue there is no forecast, without an AOV no orders estimate."""
+    f = doc.forecast or {}
+    revenue = f.get("revenue")
+    if not revenue:
+        return None
+    currency = (f.get("currency") or "USD").upper()
+    rate = f.get("fx_rate") if currency != "USD" else 1
+    if not rate:
+        return {"label": f.get("label"), "missing": f"Revenue is in {currency}: add the {currency}→USD rate."}
+    usd = float(revenue) * float(rate)
+    aov = f.get("aov")
+    return {
+        "label": f.get("label") or None,
+        "revenue_usd": round(usd, 2),
+        "revenue": _money(round(usd)),
+        "original": f"{currency} {float(revenue):,.0f} at {float(rate):g} ({f.get('fx_note') or 'rate as entered'})"
+        if currency != "USD" else None,
+        "aov": _money(aov) if aov else None,
+        "current_aov": _money(f.get("current_aov")) if f.get("current_aov") else None,
+        "orders": round(usd / float(aov)) if aov else None,
+        "growth": f"{float(f['growth_pct']):+g}% vs last year" if f.get("growth_pct") not in (None, "") else None,
+    }
 
 
 def _money(v: float | None) -> str | None:
@@ -240,6 +267,7 @@ def assemble(db: Session, doc: OfferDoc, today: date) -> dict[str, Any]:
         "name": doc.name, "tags": _tags(doc.tags, styles), "start_date": start.isoformat(), "end_date": end.isoformat(),
         "stores": [{"code": s.code, "name": s.name} for s in stores], "statuses": statuses, "sections": sec,
         "custom_top": doc.custom_top, "custom_bottom": doc.custom_bottom,
+        "period_forecast": period_forecast(doc) if sec["period_forecast"] else None,
         "focus": focus, "focus_rule": focus_rule(doc), "events": [event_out(e) for e in events] if sec["events"] else [],
         "product_offers": out_products, "extra_activities": acts,
     }

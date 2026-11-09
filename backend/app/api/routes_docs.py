@@ -23,6 +23,17 @@ router = APIRouter(prefix="/api", tags=["docs"])
 Status = Literal["in_progress", "scheduled", "live", "paused", "completed", "cancelled", "not_set"]
 
 
+class ForecastIn(BaseModel):
+    label: str | None = Field(default=None, max_length=60)
+    revenue: float | None = Field(default=None, gt=0)
+    currency: Literal["USD", "EUR", "GBP"] = "USD"
+    fx_rate: float | None = Field(default=None, gt=0)
+    fx_note: str | None = Field(default=None, max_length=80)
+    aov: float | None = Field(default=None, gt=0)
+    current_aov: float | None = Field(default=None, gt=0)
+    growth_pct: float | None = Field(default=None, ge=-100, le=1000)
+
+
 class DocIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     tags: list[str] = []
@@ -34,6 +45,7 @@ class DocIn(BaseModel):
     statuses: list[Status] = DEFAULT_STATUSES
     sections: dict[str, bool] = {}
     focus: dict[str, Any] = {}
+    forecast: ForecastIn = ForecastIn()
     custom_top: str | None = Field(default=None, max_length=20000)
     custom_bottom: str | None = Field(default=None, max_length=20000)
 
@@ -43,7 +55,7 @@ def _doc_out(d: OfferDoc, today: date) -> dict:
     return {"id": d.id, "token": d.token, "name": d.name, "tags": d.tags, "store_ids": d.store_ids,
             "range_mode": d.range_mode, "start_date": d.start_date.isoformat() if d.start_date else None,
             "end_date": d.end_date.isoformat() if d.end_date else None, "days": d.days, "statuses": d.statuses,
-            "sections": sections(d), "focus": d.focus, "custom_top": d.custom_top, "custom_bottom": d.custom_bottom,
+            "sections": sections(d), "focus": d.focus, "forecast": d.forecast or {}, "custom_top": d.custom_top, "custom_bottom": d.custom_bottom,
             "changes_since": (d.changes_since or d.created_at).isoformat(),
             "range": [start.isoformat(), end.isoformat()], "updated_at": d.updated_at.isoformat()}
 
@@ -60,6 +72,7 @@ def _apply(d: OfferDoc, body: DocIn) -> None:
         setattr(d, k, v)
     d.tags = list(dict.fromkeys(" ".join(t.split())[:40] for t in body.tags if t.strip()))
     d.statuses = body.statuses or DEFAULT_STATUSES
+    d.forecast = body.forecast.model_dump(exclude_none=True)
     d.updated_at = utcnow()
 
 

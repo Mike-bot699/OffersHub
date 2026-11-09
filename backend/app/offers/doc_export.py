@@ -53,6 +53,17 @@ def to_docx(d: dict, link: str) -> bytes:
     doc.add_paragraph(f"Snapshot of the live doc: {link}")
     if d.get("custom_top"):
         doc.add_paragraph(plain(d["custom_top"]))
+    pf = d.get("period_forecast")
+    if pf:
+        doc.add_heading("Forecast", level=1)
+        if pf.get("missing"):
+            doc.add_paragraph(pf["missing"])
+        else:
+            _field(doc, f"Revenue · {pf['label']}" if pf.get("label") else "Revenue",
+                   " · ".join(filter(None, [pf["revenue"], pf.get("original")])))
+            _field(doc, "Forecast AOV", " · ".join(filter(None, [pf.get("aov"), pf.get("current_aov") and f"current {pf['current_aov']}"])))
+            _field(doc, "Orders (estimate)", f"about {pf['orders']:,} (revenue / forecast AOV)" if pf.get("orders") is not None else None)
+            _field(doc, "Growth", pf.get("growth"))
     if d["events"]:
         doc.add_heading("Events", level=1)
         store = None

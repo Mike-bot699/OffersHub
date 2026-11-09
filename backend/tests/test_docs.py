@@ -335,3 +335,31 @@ def test_banner_check_against_the_offer(db, c):
     db.commit()
     assert any("ends 22 Nov" in x for x in c.get(f"/api/events/{week.id}/banner-check").json()["findings"])
     assert c.get(f"/api/events/{last.id}/banner-check").json()["readable"] is False  # no banner
+
+
+def test_period_forecast_from_revenue_and_aov(db, c):
+    """Real case: MAU November 2026, EUR 1,994,345 at the ECB rate of 3 Nov 2026 (1.1179), forecast AOV $105."""
+    s, _t, _l = _mau(db)
+    base = {"name": "MAU · November 2026", "store_ids": [s.id], "start_date": "2026-11-01", "end_date": "2026-11-30"}
+    fc = {"label": "November 2026", "revenue": 1994345, "currency": "EUR", "fx_rate": 1.1179, "fx_note": "ECB, 3 Nov 2026",
+          "aov": 105, "current_aov": 115, "growth_pct": 40}
+    doc = c.post("/api/offer-docs", json={**base, "forecast": fc}).json()
+    assert doc["forecast"]["revenue"] == 1994345 and doc["forecast"]["currency"] == "EUR"
+    pf = c.get(f"/api/public/docs/{doc['token']}").json()["period_forecast"]
+    assert pf["revenue"] == "$2,229,478" and pf["revenue_usd"] == 2229478.28
+    assert pf["orders"] == 21233  # 2,229,478.28 / 105
+    assert pf["original"] == "EUR 1,994,345 at 1.1179 (ECB, 3 Nov 2026)"
+    assert pf["aov"] == "$105" and pf["current_aov"] == "$115" and pf["growth"] == "+40% vs last year"
+    text = "\n".join(p.text for p in Document(io.BytesIO(c.get(f"/api/public/docs/{doc['token']}/docx").content)).paragraphs)
+    assert "about 21,233 (revenue / forecast AOV)" in text
+    # EUR without a rate: declared, never converted at 1:1
+    c.put(f"/api/offer-docs/{doc['id']}", json={**base, "forecast": {**fc, "fx_rate": None}})
+    pf = c.get(f"/api/public/docs/{doc['token']}").json()["period_forecast"]
+    assert pf == {"label": "November 2026", "missing": "Revenue is in EUR: add the EUR→USD rate."}
+    # no AOV: revenue only, no orders estimate
+    c.put(f"/api/offer-docs/{doc['id']}", json={**base, "forecast": {"revenue": 2000000}})
+    pf = c.get(f"/api/public/docs/{doc['token']}").json()["period_forecast"]
+    assert pf["revenue"] == "$2,000,000" and pf["orders"] is None and pf["original"] is None
+    # section switched off or nothing typed: no box
+    c.put(f"/api/offer-docs/{doc['id']}", json={**base, "forecast": {}})
+    assert c.get(f"/api/public/docs/{doc['token']}").json()["period_forecast"] is None

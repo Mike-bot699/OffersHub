@@ -19,6 +19,8 @@ type DocEvent = {
 export type DocData = {
   name: string; tags: Tag[]; start_date: string; end_date: string; stores: { code: string; name: string }[]
   custom_top: string | null; custom_bottom: string | null; focus_rule: string
+  period_forecast: { label: string | null; revenue?: string; original?: string | null; aov?: string | null; current_aov?: string | null
+    orders?: number | null; growth?: string | null; missing?: string } | null
   focus: { id: number; store_code: string; name: string; sku: string | null; url: string | null; perf: string | null; tags: string[] }[]
   events: DocEvent[]
   product_offers: { store_code: string; name: string; sku: string | null; url: string | null; offer: string | null }[]
@@ -128,10 +130,25 @@ function EventCard({ e, token }: { e: DocEvent; token: string }) {
 }
 
 const SECTION_INFO: Record<string, [string, string]> = {
+  forecast: ['Forecast', 'The revenue target for this period and the orders it means at the forecast average order value.'],
   events: ['Events', 'The store-wide and collection offers in this period: dates, offer, codes, where they are shown and the creatives.'],
   focus: ['Products to focus', 'The products to push in banners, emails and ads: best performers of the last 30 days plus the ones tagged for this period.'],
   products: ['Product offers', 'Offers attached to single products (bundles, add-ons, gifts), shown on their product pages.'],
   extras: ['Extra activities', 'Always-on extras the customer can add or receive at checkout.'],
+}
+
+function PeriodForecast({ f }: { f: NonNullable<DocData['period_forecast']> }) {
+  return <>
+    <SectionHead id="forecast" />
+    {f.missing ? <p className="pd-meta">{f.label ? `${f.label}: ` : ''}{f.missing}</p> : (
+      <div className="pd-kpis">
+        <div><span>{f.label ? `Revenue · ${f.label}` : 'Revenue'}</span><b>{f.revenue}</b>{f.original && <small>{f.original}</small>}</div>
+        <div><span>Forecast AOV</span><b>{f.aov ?? '-'}</b>{f.current_aov && <small>current {f.current_aov}</small>}</div>
+        <div><span>Orders (estimate)</span><b>{f.orders != null ? `≈ ${f.orders.toLocaleString('en-US')}` : '-'}</b><small>{f.orders != null ? 'revenue ÷ forecast AOV' : 'add a forecast AOV'}</small></div>
+        {f.growth && <div><span>Growth</span><b>{f.growth.split(' ')[0]}</b><small>{f.growth.split(' ').slice(1).join(' ')}</small></div>}
+      </div>
+    )}
+  </>
 }
 
 function SectionHead({ id }: { id: keyof typeof SECTION_INFO }) {
@@ -143,7 +160,7 @@ const tocDate = (s: string) => new Date(`${s}T00:00:00Z`).toLocaleDateString('en
 
 function Toc({ d }: { d: DocData }) {
   const go = (id: string) => (ev: React.MouseEvent) => { ev.preventDefault(); document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }
-  const items: [string, string, boolean][] = [['events', 'Events', d.events.length > 0], ['focus', 'Products to focus', d.focus.length > 0],
+  const items: [string, string, boolean][] = [['forecast', 'Forecast', !!d.period_forecast], ['events', 'Events', d.events.length > 0], ['focus', 'Products to focus', d.focus.length > 0],
     ['products', 'Product offers', d.product_offers.length > 0], ['extras', 'Extra activities', d.extra_activities.length > 0]]
   return (
     <nav className="pd-toc" aria-label="Contents">
@@ -174,6 +191,7 @@ export function DocBody({ d, token }: { d: DocData; token: string }) {
           {d.tags.length > 0 && <div className="pd-tags">{d.tags.map((t) => <TagPill key={t.name} t={t} />)}</div>}
         </div>
         <Custom html={d.custom_top} where="top" />
+        {d.period_forecast && <PeriodForecast f={d.period_forecast} />}
         {d.events.length > 0 && <>
           <SectionHead id="events" />
           {d.events.map((e) => {

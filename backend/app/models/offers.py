@@ -281,6 +281,8 @@ class OfferDoc(Base):
     focus: Mapped[dict[str, Any]] = mapped_column(default=dict)  # {perf_tags, manual_tags, limit, pin, exclude}
     custom_top: Mapped[str | None] = mapped_column(Text)
     custom_bottom: Mapped[str | None] = mapped_column(Text)
+    # Period forecast typed by people: {label, revenue, currency, fx_rate, fx_note, aov, current_aov, growth_pct}
+    forecast: Mapped[dict[str, Any]] = mapped_column(default=dict)
     # The changes box shows offer changes made after this moment (doc creation, or the last reset).
     changes_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
