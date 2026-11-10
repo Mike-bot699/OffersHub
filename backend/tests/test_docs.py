@@ -238,65 +238,37 @@ def test_doc_uses_written_description_then_generated_then_offer_text(db, c):
     assert ev["Tricks, Treats & Clever Feats"]["offer"] == "Written by hand."
 
 
-def test_forecast_from_the_same_event_last_year(db, c):
-    """Real figures from the MAU calendar notes: 2025 BF2025 1,537 orders (AOV $131) over Black Friday
-    week; 2025 CYBER15 1,370 orders, AOV $139 (a report without days)."""
-    from datetime import timedelta
-
-    from app.models import DiscountReport, DiscountReportRow
-    from app.offers.forecast import codes_from_notes
-
+def test_events_get_their_share_of_the_period_forecast(db, c):
+    """Real case: MAU November 2026, EUR 1,994,345 at 1.1179 = $2,229,478, AOV $105. Each event shows the
+    orders and revenue of its days in that period; last year's code estimates are no longer shown."""
     s, *_ = _mau(db)
     bf = PromoEvent(store_id=s.id, name="Black Friday for Big Ideas", status="scheduled", source="manual", display="full_site",
                     start_date=date(2026, 11, 23), end_date=date(2026, 11, 29), coupon_codes=["BF2026", "FOXCLUB"],
-                    compare_codes=codes_from_notes("2025 BF2025 at 20% single code: 1,537 orders, AOV $131", 2026))
+                    compare_codes=["BF2025"])
     cy = PromoEvent(store_id=s.id, name="Cyber Monday, Curious Clicks", status="scheduled", source="manual", display="full_site",
                     start_date=date(2026, 11, 30), end_date=date(2026, 12, 2), coupon_codes=["CYBER20"], compare_codes=["CYBER15"])
     ny = PromoEvent(store_id=s.id, name="24 Little Wonders", status="scheduled", source="manual", display="email_only",
-                    start_date=date(2026, 12, 1), end_date=date(2026, 12, 24))
+                    start_date=date(2026, 12, 1), end_date=date(2026, 12, 24), compare_codes=["SOLO22"])
     db.add_all([bf, cy, ny])
-    daily = DiscountReport(store_id=s.id, period_start=date(2025, 10, 1), period_end=date(2026, 10, 31), source="elizeta",
-                           by_day=True, created_at=__import__("datetime").datetime(2026, 11, 2))
-    flat = DiscountReport(store_id=s.id, period_start=date(2025, 11, 1), period_end=date(2025, 12, 31), source="shopify_export",
-                          by_day=False, created_at=__import__("datetime").datetime(2026, 11, 2))
-    db.add_all([daily, flat])
-    db.flush()
-    per_day = [220, 220, 220, 220, 219, 219, 219]  # 1,537 orders over 24-30 Nov 2025
-    db.add_all([DiscountReportRow(report_id=daily.id, store_id=s.id, day=date(2025, 11, 24) + timedelta(days=i), name="BF2025",
-                                  method="discount_code", orders=o, discounts=0, net_sales=o * 131.0) for i, o in enumerate(per_day)])
-    db.add(DiscountReportRow(report_id=flat.id, store_id=s.id, name="CYBER15", method="discount_code", orders=1370,
-                             discounts=0, net_sales=1370 * 139.0))
-    # late uses months later (real case: BF2025 shows 3 orders in the Jan-Oct 2026 Shopify report) are not last year's event
-    db.add(DiscountReportRow(report_id=daily.id, store_id=s.id, day=date(2026, 1, 20), name="BF2025", method="discount_code",
-                             orders=3, discounts=0, net_sales=359.0))
-    later = DiscountReport(store_id=s.id, period_start=date(2026, 1, 1), period_end=date(2026, 10, 30), source="shopify_export",
-                           by_day=False, created_at=__import__("datetime").datetime(2026, 11, 2))
-    db.add(later)
-    db.flush()
-    db.add(DiscountReportRow(report_id=later.id, store_id=s.id, name="JINGLE15", method="discount_code", orders=1,
-                             discounts=0, net_sales=135.1))
-    dk = PromoEvent(store_id=s.id, name="Deck the Shelves", status="scheduled", source="manual", display="full_site",
-                    start_date=date(2026, 12, 10), end_date=date(2026, 12, 15), compare_codes=["JINGLE15"])
-    db.add(dk)
     db.commit()
-    assert bf.compare_codes == ["BF2025"]
+    fc = {"label": "November 2026", "start": "2026-11-01", "end": "2026-11-30", "revenue": 1994345, "currency": "EUR",
+          "fx_rate": 1.1179, "aov": 105}
     doc = c.post("/api/offer-docs", json={"name": "x", "start_date": "2026-11-20", "end_date": "2026-12-31"}).json()
     ev = {e["name"]: e for e in c.get(f"/api/public/docs/{doc['token']}").json()["events"]}
-    assert ev["Black Friday for Big Ideas"]["forecast"] == {"orders": 1537, "uses": None, "aov": "$131", "estimate": True,
-                                                            "basis": "last year BF2025: 1,537 orders in 7 days"}
-    assert ev["Cyber Monday, Curious Clicks"]["forecast"]["orders"] == 1370  # no days: last year's total as is
-    assert ev["24 Little Wonders"]["forecast"] is None  # no last-year codes: no estimate
-    assert ev["Deck the Shelves"]["forecast"]["missing"] == "no sales data yet for last year's JINGLE15"  # said, not hidden
-    # the store's discount list knows the code's total uses (real: BF2025 used 1,540 times, Shopify export)
-    from app.models import Coupon
-    db.add(Coupon(store_id=s.id, code="JINGLE15", source="shopify_export", status="expired", usage_count=1625))
-    db.commit()
+    assert all(e["forecast"] is None for e in ev.values())  # no period forecast: nothing, not last year's codes
+    c.put(f"/api/offer-docs/{doc['id']}", json={"name": "x", "start_date": "2026-11-20", "end_date": "2026-12-31", "forecast": fc})
     ev = {e["name"]: e for e in c.get(f"/api/public/docs/{doc['token']}").json()["events"]}
-    assert ev["Deck the Shelves"]["forecast"] == {"orders": 1625, "uses": None, "aov": None, "estimate": True,
-                                                  "basis": "last year JINGLE15: used 1,625 times in total"}
+    assert ev["Black Friday for Big Ideas"]["forecast"] == {
+        "orders": 4954, "uses": None, "aov": "$105", "revenue": "$520,212", "estimate": True,
+        "basis": "7 of 30 days of the November 2026 forecast"}  # 2,229,478.28 x 7/30 = 520,211.6; / 105
+    cyber = ev["Cyber Monday, Curious Clicks"]["forecast"]
+    assert cyber["orders"] == 708 and cyber["revenue"] == "$74,316"  # only 30 Nov is in November
+    assert cyber["basis"] == "1 of 30 days of the November 2026 forecast (2 event days outside it)"
+    assert ev["24 Little Wonders"]["forecast"] is None  # all in December: outside the forecast's period
     c.patch(f"/api/events/{bf.id}", json={"forecast_orders": 1400})
     ev = {e["name"]: e for e in c.get(f"/api/public/docs/{doc['token']}").json()["events"]}
     assert ev["Black Friday for Big Ideas"]["forecast"]["estimate"] is False  # typed forecast wins
+    assert ev["Black Friday for Big Ideas"]["forecast"]["orders"] == 1400
 
 
 def test_changes_box_starts_at_doc_creation_and_can_be_reset(db, c):
@@ -351,7 +323,7 @@ def test_period_forecast_from_revenue_and_aov(db, c):
     assert pf["original"] == "EUR 1,994,345 at 1.1179 (ECB, 3 Nov 2026)"
     assert pf["aov"] == "$105" and pf["current_aov"] == "$115" and pf["growth"] == "+40% vs last year"
     text = "\n".join(p.text for p in Document(io.BytesIO(c.get(f"/api/public/docs/{doc['token']}/docx").content)).paragraphs)
-    assert "about 21,233 (revenue / forecast AOV)" in text
+    assert "Forecast:" not in text.split("Events")[0]  # no period box at the top any more
     # EUR without a rate: declared, never converted at 1:1
     c.put(f"/api/offer-docs/{doc['id']}", json={**base, "forecast": {**fc, "fx_rate": None}})
     pf = c.get(f"/api/public/docs/{doc['token']}").json()["period_forecast"]

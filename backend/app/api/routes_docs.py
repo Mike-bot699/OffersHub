@@ -25,6 +25,8 @@ Status = Literal["in_progress", "scheduled", "live", "paused", "completed", "can
 
 class ForecastIn(BaseModel):
     label: str | None = Field(default=None, max_length=60)
+    start: date | None = None  # the forecast's period; empty = the doc's range
+    end: date | None = None
     revenue: float | None = Field(default=None, gt=0)
     currency: Literal["USD", "EUR", "GBP"] = "USD"
     fx_rate: float | None = Field(default=None, gt=0)
@@ -72,7 +74,7 @@ def _apply(d: OfferDoc, body: DocIn) -> None:
         setattr(d, k, v)
     d.tags = list(dict.fromkeys(" ".join(t.split())[:40] for t in body.tags if t.strip()))
     d.statuses = body.statuses or DEFAULT_STATUSES
-    d.forecast = body.forecast.model_dump(exclude_none=True)
+    d.forecast = body.forecast.model_dump(mode="json", exclude_none=True)
     d.updated_at = utcnow()
 
 

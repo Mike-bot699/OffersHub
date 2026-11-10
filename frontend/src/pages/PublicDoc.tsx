@@ -12,7 +12,7 @@ type DocEvent = {
   offer: string | null; codes: string[]; threshold: string | null; activation: string | null
   bonus: { free_shipping: string | null; giveaway_product: string | null; free_gift: string | null } | null
   products: string | null; channels: { key: string; name: string }[]
-  forecast: { orders: number | null; uses: number | null; aov: string | null; estimate: boolean; basis?: string; missing?: string } | null
+  forecast: { orders: number | null; uses: number | null; aov: string | null; revenue?: string | null; estimate: boolean; basis?: string } | null
   extra_details: string | null
   changes: { date: string; items: { field: string; text: string }[] } | null
 }
@@ -115,13 +115,13 @@ function EventCard({ e, token }: { e: DocEvent; token: string }) {
         {e.products && <Field label="Products">{e.products}</Field>}
         {e.channels.length > 0 && <Field label="Advertising">{e.channels.map((c) => <span key={c.key} className="pd-tag sm pd-ch" style={{ background: CHANNEL_COLOR[c.key], color: '#fff' }}>{c.name}</span>)}</Field>}
       </div>
-      {e.forecast?.missing && <div className="pd-box"><b>Forecast</b><span className="pd-meta" style={{ margin: 0 }}>{e.forecast.missing}</span></div>}
-      {e.forecast && !e.forecast.missing && (
+      {e.forecast && (
         <div className="pd-box"><b>Forecast</b>
-          {e.forecast.estimate && <span className="pd-est" title="From the same event last year: its codes' orders, scaled to this year's days when daily data exist, and its AOV. Replaced by a forecast typed on the offer.">estimate · {e.forecast.basis}</span>}
-          {e.forecast.orders != null && <span><em>{e.forecast.orders}</em> orders</span>}
+          {e.forecast.orders != null && <span><em>≈ {e.forecast.orders.toLocaleString('en-US')}</em> orders</span>}
+          {e.forecast.revenue && <span><em>≈ {e.forecast.revenue}</em> revenue</span>}
           {e.forecast.uses != null && <span><em>{e.forecast.uses}</em> code uses</span>}
           {e.forecast.aov && <span>AOV <em>{e.forecast.aov}</em></span>}
+          {e.forecast.basis && <span className="pd-meta" style={{ margin: 0 }} title="The period forecast split evenly over its days (no seasonality). A forecast typed on the offer replaces it.">{e.forecast.basis}</span>}
         </div>
       )}
       {e.extra_details?.trim() && <div className="pd-box"><b>Extra details:</b><span style={{ whiteSpace: 'pre-line' }}>{e.extra_details}</span></div>}
@@ -130,25 +130,10 @@ function EventCard({ e, token }: { e: DocEvent; token: string }) {
 }
 
 const SECTION_INFO: Record<string, [string, string]> = {
-  forecast: ['Forecast', 'The revenue target for this period and the orders it means at the forecast average order value.'],
   events: ['Events', 'The store-wide and collection offers in this period: dates, offer, codes, where they are shown and the creatives.'],
   focus: ['Products to focus', 'The products to push in banners, emails and ads: best performers of the last 30 days plus the ones tagged for this period.'],
   products: ['Product offers', 'Offers attached to single products (bundles, add-ons, gifts), shown on their product pages.'],
   extras: ['Extra activities', 'Always-on extras the customer can add or receive at checkout.'],
-}
-
-function PeriodForecast({ f }: { f: NonNullable<DocData['period_forecast']> }) {
-  return <>
-    <SectionHead id="forecast" />
-    {f.missing ? <p className="pd-meta">{f.label ? `${f.label}: ` : ''}{f.missing}</p> : (
-      <div className="pd-kpis">
-        <div><span>{f.label ? `Revenue · ${f.label}` : 'Revenue'}</span><b>{f.revenue}</b>{f.original && <small>{f.original}</small>}</div>
-        <div><span>Forecast AOV</span><b>{f.aov ?? '-'}</b>{f.current_aov && <small>current {f.current_aov}</small>}</div>
-        <div><span>Orders (estimate)</span><b>{f.orders != null ? `≈ ${f.orders.toLocaleString('en-US')}` : '-'}</b><small>{f.orders != null ? 'revenue ÷ forecast AOV' : 'add a forecast AOV'}</small></div>
-        {f.growth && <div><span>Growth</span><b>{f.growth.split(' ')[0]}</b><small>{f.growth.split(' ').slice(1).join(' ')}</small></div>}
-      </div>
-    )}
-  </>
 }
 
 function SectionHead({ id }: { id: keyof typeof SECTION_INFO }) {
@@ -160,7 +145,7 @@ const tocDate = (s: string) => new Date(`${s}T00:00:00Z`).toLocaleDateString('en
 
 function Toc({ d }: { d: DocData }) {
   const go = (id: string) => (ev: React.MouseEvent) => { ev.preventDefault(); document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }
-  const items: [string, string, boolean][] = [['forecast', 'Forecast', !!d.period_forecast], ['events', 'Events', d.events.length > 0], ['focus', 'Products to focus', d.focus.length > 0],
+  const items: [string, string, boolean][] = [['events', 'Events', d.events.length > 0], ['focus', 'Products to focus', d.focus.length > 0],
     ['products', 'Product offers', d.product_offers.length > 0], ['extras', 'Extra activities', d.extra_activities.length > 0]]
   return (
     <nav className="pd-toc" aria-label="Contents">
@@ -191,7 +176,6 @@ export function DocBody({ d, token }: { d: DocData; token: string }) {
           {d.tags.length > 0 && <div className="pd-tags">{d.tags.map((t) => <TagPill key={t.name} t={t} />)}</div>}
         </div>
         <Custom html={d.custom_top} where="top" />
-        {d.period_forecast && <PeriodForecast f={d.period_forecast} />}
         {d.events.length > 0 && <>
           <SectionHead id="events" />
           {d.events.map((e) => {

@@ -14,14 +14,14 @@ type Doc = {
   custom_top: string | null; custom_bottom: string | null; range: [string, string]; updated_at: string; changes_since: string
   forecast: Forecast
 }
-type Forecast = { label?: string; revenue?: number; currency?: 'USD' | 'EUR' | 'GBP'; fx_rate?: number; fx_note?: string
+type Forecast = { label?: string; start?: string; end?: string; revenue?: number; currency?: 'USD' | 'EUR' | 'GBP'; fx_rate?: number; fx_note?: string
   aov?: number; current_aov?: number; growth_pct?: number }
 type Activity = { id: number; store_id: number; name: string; description: string | null; price: string | null; code: string | null
   start_date: string | null; end_date: string | null; active: boolean }
 
 const RANGES = [['fixed', 'Fixed dates'], ['next_days', 'Next N days'], ['this_month', 'This month'], ['next_month', 'Next month']] as const
 const STATUSES = [['live', 'Live'], ['scheduled', 'Scheduled'], ['in_progress', 'In Progress'], ['paused', 'Paused'], ['completed', 'Completed'], ['cancelled', 'Cancelled'], ['not_set', 'Not set']] as const
-const SECTIONS = [['period_forecast', 'Period forecast'], ['focus', 'Products to focus'], ['events', 'Events'], ['product_offers', 'Product offers'], ['extra_activities', 'Extra activities'],
+const SECTIONS = [['focus', 'Products to focus'], ['events', 'Events'], ['product_offers', 'Product offers'], ['extra_activities', 'Extra activities'],
   ['bonus', 'Bonus'], ['forecast', 'Forecast'], ['extra_details', 'Extra details'], ['changes', 'Recent changes box']] as const
 const PERF = [['best_seller', 'Best Seller'], ['top_seller', 'Top Seller'], ['popular', 'Popular'], ['free', 'Free']] as const
 
@@ -83,7 +83,7 @@ function DocEditor({ doc, onClose }: { doc: Doc | null; onClose: () => void }) {
     name: doc?.name ?? '', tags: doc?.tags.join(', ') ?? '', store_ids: doc?.store_ids ?? (storeId ? [storeId] : []),
     range_mode: doc?.range_mode ?? 'fixed', start_date: doc?.start_date ?? '', end_date: doc?.end_date ?? '', days: String(doc?.days ?? 30),
     statuses: doc?.statuses ?? ['live', 'scheduled', 'in_progress'],
-    sections: { period_forecast: true, focus: true, events: true, product_offers: true, extra_activities: true, bonus: true, forecast: true, extra_details: true, changes: true, ...(doc?.sections ?? {}) } as Record<string, boolean>,
+    sections: { focus: true, events: true, product_offers: true, extra_activities: true, bonus: true, forecast: true, extra_details: true, changes: true, ...(doc?.sections ?? {}) } as Record<string, boolean>,
     perf_tags: doc?.focus?.perf_tags ?? ['best_seller', 'top_seller'], manual_tags: (doc?.focus?.manual_tags ?? []).join(', '),
     limit: String(doc?.focus?.limit ?? 15), custom_top: doc?.custom_top ?? '', custom_bottom: doc?.custom_bottom ?? '',
     fc: Object.fromEntries(Object.entries({ currency: 'USD', ...(doc?.forecast ?? {}) }).map(([k, v]) => [k, String(v ?? '')])) as Record<string, string>,
@@ -106,7 +106,7 @@ function DocEditor({ doc, onClose }: { doc: Doc | null; onClose: () => void }) {
         focus: { perf_tags: f.perf_tags, manual_tags: f.manual_tags.split(',').map((t) => t.trim()).filter(Boolean), limit: Number(f.limit) || 15 },
         custom_top: f.custom_top || null, custom_bottom: f.custom_bottom || null,
         forecast: {
-          label: f.fc.label?.trim() || null, revenue: n(f.fc.revenue), currency: f.fc.currency || 'USD',
+          label: f.fc.label?.trim() || null, start: f.fc.start || null, end: f.fc.end || null, revenue: n(f.fc.revenue), currency: f.fc.currency || 'USD',
           fx_rate: f.fc.currency === 'USD' ? null : n(f.fc.fx_rate), fx_note: f.fc.currency === 'USD' ? null : f.fc.fx_note?.trim() || null,
           aov: n(f.fc.aov), current_aov: n(f.fc.current_aov),
           growth_pct: f.fc.growth_pct?.trim() && !Number.isNaN(Number(f.fc.growth_pct)) ? Number(f.fc.growth_pct) : null,
@@ -153,10 +153,12 @@ function DocEditor({ doc, onClose }: { doc: Doc | null; onClose: () => void }) {
             {reset.isSuccess ? 'Reset done' : 'Reset changes box'}</button>
         </div>
       )}
-      {f.sections.period_forecast && <>
-        <div className="section-title">Period forecast</div>
+      {f.sections.forecast && <>
+        <div className="section-title">Period forecast (split over the events by days)</div>
         <div className="form-grid">
           <Field label="Label"><input value={f.fc.label ?? ''} onChange={(e) => setFc('label', e.target.value)} placeholder="e.g. November 2026" /></Field>
+          <Field label="Period from (empty = doc range)"><input type="date" value={f.fc.start ?? ''} onChange={(e) => setFc('start', e.target.value)} /></Field>
+          <Field label="Period to (empty = doc range)"><input type="date" value={f.fc.end ?? ''} onChange={(e) => setFc('end', e.target.value)} /></Field>
           <Field label="Revenue forecast"><input type="number" min={0} step="any" value={f.fc.revenue ?? ''} onChange={(e) => setFc('revenue', e.target.value)} placeholder="e.g. 1994345" /></Field>
           <Field label="Currency"><select value={f.fc.currency} onChange={(e) => setFc('currency', e.target.value)}>{['USD', 'EUR', 'GBP'].map((c) => <option key={c}>{c}</option>)}</select></Field>
           {f.fc.currency !== 'USD' && <>
@@ -167,7 +169,7 @@ function DocEditor({ doc, onClose }: { doc: Doc | null; onClose: () => void }) {
           <Field label="Current AOV ($, optional)"><input type="number" min={0} step="any" value={f.fc.current_aov ?? ''} onChange={(e) => setFc('current_aov', e.target.value)} placeholder="e.g. 115" /></Field>
           <Field label="Growth vs last year (%, optional)"><input type="number" step="any" value={f.fc.growth_pct ?? ''} onChange={(e) => setFc('growth_pct', e.target.value)} placeholder="e.g. 40" /></Field>
         </div>
-        <small className="muted">{fcUsd ? `$${Math.round(fcUsd).toLocaleString('en-US')} revenue` : 'Revenue in USD appears once revenue (and the rate, if not USD) are set'}{fcOrders ? ` · about ${fcOrders.toLocaleString('en-US')} orders (revenue / forecast AOV)` : ''}. Shown at the top of the doc.</small>
+        <small className="muted">{fcUsd ? `$${Math.round(fcUsd).toLocaleString('en-US')} revenue` : 'Revenue in USD appears once revenue (and the rate, if not USD) are set'}{fcOrders ? ` · about ${fcOrders.toLocaleString('en-US')} orders (revenue / forecast AOV)` : ''}. Each event shows its share: period ÷ days × event days. A forecast typed on an offer replaces it.</small>
       </>}
       {f.sections.focus && <>
         <div className="section-title">Products to focus</div>

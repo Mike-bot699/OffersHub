@@ -19,7 +19,6 @@ from sqlalchemy.orm import Session
 
 from app.models import Coupon, EventChange, ExtraActivity, OfferDoc, Product, PromoEvent, Store, TagStyle, Variant
 from app.offers.changes import TRACKED
-from app.offers.forecast import estimate as forecast_estimate
 from app.offers.offer_text import describe as describe_offer
 
 DEFAULT_STATUSES = ["live", "scheduled", "in_progress"]
@@ -90,11 +89,14 @@ def _changes(items: list) -> list[dict]:
     return list(reversed(uniq))[:3]
 
 
-def period_forecast(doc: OfferDoc) -> dict | None:
+def period_forecast(doc: OfferDoc, start: date | None = None, end: date | None = None) -> dict | None:
     """The doc's period forecast, as typed: revenue (converted to USD at the typed rate when given in
     another currency) and AOV give the orders estimate = revenue / AOV. Nothing is fetched or guessed:
-    without a revenue there is no forecast, without an AOV no orders estimate."""
+    without a revenue there is no forecast, without an AOV no orders estimate. The period is the one
+    typed with the forecast, otherwise the doc's range."""
     f = doc.forecast or {}
+    p_start = date.fromisoformat(f["start"]) if f.get("start") else start
+    p_end = date.fromisoformat(f["end"]) if f.get("end") else end
     revenue = f.get("revenue")
     if not revenue:
         return None
@@ -106,7 +108,8 @@ def period_forecast(doc: OfferDoc) -> dict | None:
     aov = f.get("aov")
     return {
         "label": f.get("label") or None,
-        "revenue_usd": round(usd, 2),
+        "start": p_start.isoformat() if p_start else None, "end": p_end.isoformat() if p_end else None,
+        "revenue_usd": round(usd, 2), "aov_usd": float(aov) if aov else None,
         "revenue": _money(round(usd)),
         "original": f"{currency} {float(revenue):,.0f} at {float(rate):g} ({f.get('fx_note') or 'rate as entered'})"
         if currency != "USD" else None,
@@ -115,6 +118,24 @@ def period_forecast(doc: OfferDoc) -> dict | None:
         "orders": round(usd / float(aov)) if aov else None,
         "growth": f"{float(f['growth_pct']):+g}% vs last year" if f.get("growth_pct") not in (None, "") else None,
     }
+
+
+def event_share(pf: dict | None, a: date, b: date) -> dict | None:
+    """The part of the period forecast that falls on the event's days (a to b, inclusive)."""
+    if not pf or pf.get("missing") or not pf.get("start") or not pf.get("end"):
+        return None
+    ps, pe = date.fromisoformat(pf["start"]), date.fromisoformat(pf["end"])
+    lo, hi = max(a, ps), min(b, pe)
+    if hi < lo:
+        return None  # the event is outside the forecast's period
+    days, total, ev_days = (hi - lo).days + 1, (pe - ps).days + 1, (b - a).days + 1
+    revenue = pf["revenue_usd"] * days / total
+    label = pf.get("label") or f"{ps.isoformat()} to {pe.isoformat()}"
+    basis = f"{days} of {total} days of the {label} forecast"
+    if days < ev_days:
+        basis += f" ({ev_days - days} event day{'s' if ev_days - days != 1 else ''} outside it)"
+    return {"orders": round(revenue / pf["aov_usd"]) if pf.get("aov_usd") else None, "uses": None,
+            "aov": pf.get("aov"), "revenue": _money(round(revenue)), "estimate": True, "basis": basis}
 
 
 def _money(v: float | None) -> str | None:
@@ -193,18 +214,16 @@ def assemble(db: Session, doc: OfferDoc, today: date) -> dict[str, Any]:
             if start_from is None or _aware(c.at) > start_from:
                 changes.setdefault(c.event_id, []).append(c)
 
-    ly_cache: dict = {}
+
+    pf = period_forecast(doc, start, end)
 
     def _forecast(e: PromoEvent) -> dict | None:
+        """A forecast typed on the offer wins; otherwise the doc's period forecast, split by days: the
+        store's orders and revenue expected on the event's days (flat daily average of the period, no
+        seasonality). Nothing else is shown: no estimate, no line."""
         if e.forecast_orders or e.forecast_uses or e.forecast_aov:
             return {"orders": e.forecast_orders, "uses": e.forecast_uses, "aov": _money(e.forecast_aov), "estimate": False}
-        est = forecast_estimate(db, e, ly_cache)
-        if est:
-            return {"orders": est["orders"], "uses": None, "aov": _money(est["aov"]), "estimate": True, "basis": est["basis"]}
-        if e.compare_codes:  # said, not hidden: the comparison is set but last year's sales are not in OffersHub yet
-            return {"orders": None, "uses": None, "aov": None, "estimate": True,
-                    "missing": f"no sales data yet for last year's {', '.join(e.compare_codes)}"}
-        return None
+        return event_share(pf, e.start_date, e.end_date)
 
     def event_out(e: PromoEvent) -> dict:
         s = by_id[e.store_id]
@@ -267,7 +286,7 @@ def assemble(db: Session, doc: OfferDoc, today: date) -> dict[str, Any]:
         "name": doc.name, "tags": _tags(doc.tags, styles), "start_date": start.isoformat(), "end_date": end.isoformat(),
         "stores": [{"code": s.code, "name": s.name} for s in stores], "statuses": statuses, "sections": sec,
         "custom_top": doc.custom_top, "custom_bottom": doc.custom_bottom,
-        "period_forecast": period_forecast(doc) if sec["period_forecast"] else None,
+        "period_forecast": pf,
         "focus": focus, "focus_rule": focus_rule(doc), "events": [event_out(e) for e in events] if sec["events"] else [],
         "product_offers": out_products, "extra_activities": acts,
     }
